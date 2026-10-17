@@ -37,7 +37,7 @@ export default async function handler(req, res) {
     const text1 = (res1 && res1.ok) ? await res1.text().catch(() => "") : "";
     const text2 = (res2 && res2.ok) ? await res2.text().catch(() => "") : "";
 
-    const hotMatchesArray = [];
+    const matchGroupsMap = new Map(); // Gom nhóm các luồng của cùng một trận đấu
     const normalChannelsList = [];
 
     const HOT_LEAGUES_AND_TEAMS = [
@@ -60,9 +60,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // Hàm trích xuất thời gian đầy đủ (Ngày + Giờ) để sắp xếp chuẩn theo dòng thời gian
+    // Hàm lấy chuỗi sortKey đầy đủ để sắp xếp theo dòng thời gian (Năm-Tháng-Ngày Giờ:Phút)
     function getSortTimestamp(text) {
-      // Khớp định dạng [HH:mm - DD/MM] hoặc [HH:mm - DD/MM/YYYY]
       const matchFull = text.match(/\[(\d{1,2}):(\d{2})\s*-\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\]/);
       if (matchFull) {
         const [, hh, mm, dd, MM, yy] = matchFull;
@@ -73,13 +72,21 @@ export default async function handler(req, res) {
         const minute = mm.padStart(2, '0');
         return `${year}-${month}-${day} ${hour}:${minute}`;
       }
-      // Nếu chỉ có giờ [HH:mm]
       const matchTimeOnly = text.match(/\[(\d{1,2}):(\d{2})\]/);
       if (matchTimeOnly) {
         const [, hh, mm] = matchTimeOnly;
         return `2026-10-17 ${hh.padStart(2, '0')}:${mm.padStart(2, '0')}`;
       }
       return '2026-10-17 00:00';
+    }
+
+    // Tạo khóa đồng nhất để nhận diện các trận giống nhau (gom chung THTT & Xoiche)
+    function getMatchGroupKey(t1, t2, timeStr) {
+      const clean1 = t1.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const clean2 = t2.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const sortedTeams = [clean1, clean2].sort().join('_');
+      const timeKey = timeStr ? timeStr.replace(/[^0-9]/g, '') : '0000';
+      return `${sortedTeams}_${timeKey}`;
     }
 
     // NGUỒN 1 (Vietxiaomi)
@@ -111,11 +118,23 @@ export default async function handler(req, res) {
 
           const isInHotGroup = HOT_THTT_GROUPS.some(grp => currentInf.toLowerCase().includes(grp.toLowerCase()));
           if (isInHotGroup && isMatchHot(currentInf)) {
+            const timeMatch = currentInf.match(/\[(\d{1,2}:\d{2})/);
+            const timeStr = timeMatch ? timeMatch[1] : "";
+            
+            // Tách tên 2 đội từ THTT để tạo key gom nhóm chính xác
+            let matchPart = currentInf.replace(/#EXTINF:[^,]+,\s*/, '').replace(/\[.*?\]\s*/, '').replace(/\s*\(.*?\)\s*$/, '').trim();
+            let parts = matchPart.split(/\s+vs\s+|\s+VS\s+/i);
+            let groupKey = parts.length >= 2 ? getMatchGroupKey(parts[0], parts[1], timeStr) : matchPart.toLowerCase() + "_" + timeStr;
+
             let modifiedInf = currentInf.replace(/group-title="[^"]*"/gi, 'group-title="🔥 TRẬN TÂM ĐIỂM"');
-            hotMatchesArray.push({
-              sortKey: getSortTimestamp(currentInf),
-              entry: `${modifiedInf}\n${streamUrl}`
-            });
+            
+            if (!matchGroupsMap.has(groupKey)) {
+              matchGroupsMap.set(groupKey, {
+                sortKey: getSortTimestamp(currentInf),
+                entries: []
+              });
+            }
+            matchGroupsMap.get(groupKey).entries.push(`${modifiedInf}\n${streamUrl}`);
           }
           currentInf = "";
         }
@@ -299,6 +318,8 @@ export default async function handler(req, res) {
             matchDict[dictKey] = {
               timeDate: timeDateDisplay,
               teams: formattedTeams,
+              team1,
+              team2,
               blvs: foundBlvs,
               fallbackUrl: fullUrl,
               logo: matchLogo,
@@ -318,6 +339,7 @@ export default async function handler(req, res) {
           const data = matchDict[key];
           const timeStr = data.timeDate ? `[${data.timeDate}] ` : "";
           const isXoicheMatchHot = isMatchHot(data.rawTextForHotCheck);
+          const groupKey = getMatchGroupKey(data.team1, data.team2, data.timeDate);
 
           if (data.blvs.length > 0) {
             data.blvs.forEach(blv => {
@@ -325,12 +347,14 @@ export default async function handler(req, res) {
               normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
               
               if (isXoicheMatchHot) {
-                // Giữ nguyên định dạng gốc sạch sẽ, không chèn chữ thừa hay số thứ tự
                 let infLine = `#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})`;
-                hotMatchesArray.push({
-                  sortKey: getSortTimestamp(timeStr),
-                  entry: `${infLine}\n${vlcOpt}\n${streamUrl}`
-                });
+                if (!matchGroupsMap.has(groupKey)) {
+                  matchGroupsMap.set(groupKey, {
+                    sortKey: getSortTimestamp(timeStr),
+                    entries: []
+                  });
+                }
+                matchGroupsMap.get(groupKey).entries.push(`${infLine}\n${vlcOpt}\n${streamUrl}`);
               }
             });
           } else {
@@ -338,10 +362,13 @@ export default async function handler(req, res) {
             
             if (isXoicheMatchHot) {
               let infLine = `#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", ${timeStr}${data.teams}`;
-              hotMatchesArray.push({
-                sortKey: getSortTimestamp(timeStr),
-                entry: `${infLine}\n${vlcOpt}\n${data.fallbackUrl}`
-              });
+              if (!matchGroupsMap.has(groupKey)) {
+                matchGroupsMap.set(groupKey, {
+                  sortKey: getSortTimestamp(timeStr),
+                  entries: []
+                });
+              }
+              matchGroupsMap.get(groupKey).entries.push(`${infLine}\n${vlcOpt}\n${data.fallbackUrl}`);
             }
           }
         }
@@ -350,9 +377,13 @@ export default async function handler(req, res) {
       }
     }
 
-    // Sắp xếp các trận hot theo đúng Ngày & Giờ (Chronological order)
-    hotMatchesArray.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-    const hotMatchesList = hotMatchesArray.map(item => item.entry);
+    // Sắp xếp các cụm trận theo đúng dòng thời gian (Chronological order)
+    const sortedGroups = Array.from(matchGroupsMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    
+    const hotMatchesList = [];
+    sortedGroups.forEach(group => {
+      hotMatchesList.push(...group.entries);
+    });
 
     const combined = "#EXTM3U\n\n" + 
       (hotMatchesList.length > 0 ? hotMatchesList.join("\n\n") + "\n\n" : "") + 
