@@ -3,6 +3,7 @@ export default async function handler(req, res) {
   const url2 = "https://thtt.pages.dev/tttt.m3u";
 
   try {
+    // 1. Kéo dữ liệu đồng thời cả 3 nguồn
     const [res1, res2, xoicheRes] = await Promise.all([
       fetch(url1),
       fetch(url2),
@@ -16,12 +17,77 @@ export default async function handler(req, res) {
     const text1 = await res1.text();
     const text2 = await res2.text();
 
-    let xoichePlaylist = "";
+    const hotMatchesList = [];
+    const normalChannelsList = [];
 
+    // Danh sách từ khóa các Giải đấu lớn & Đội bóng lớn để lọc trận HOT
+    const HOT_LEAGUES_AND_TEAMS = [
+      "PREMIER LEAGUE", "NGOẠI HẠNG ANH", "CHAMPIONS LEAGUE", "CÚP C1", 
+      "EUROPA LEAGUE", "CÚP C2", "LA LIGA", "SERIE A", "BUNDESLIGA", "LIGUE 1", 
+      "V-LEAGUE", "V.LEAGUE", "WORLD CUP", "EURO", "ASIAN CUP", "AFF CUP", "ASEAN CUP",
+      "MANCHESTER UNITED", "MAN UTD", "MU", "MANCHESTER CITY", "MAN CITY", "LIVERPOOL", 
+      "ARSENAL", "CHELSEA", "REAL MADRID", "BARCELONA", "BARCA", "BAYERN", "PSG", 
+      "JUVENTUS", "INTER", "AC MILAN"
+    ];
+
+    // Danh sách tên nhóm hot ở Nguồn 2 (THTT)
+    const HOT_THTT_GROUPS = ["Vua Sân Cỏ TV", "Vua Sân Cỏ", "Giờ Vàng TV", "Giờ Vàng", "Gio Vang", "S8 TV", "S8"];
+
+    function isMatchHot(text) {
+      if (!text) return false;
+      const upperText = text.toUpperCase();
+      return HOT_LEAGUES_AND_TEAMS.some(keyword => {
+        const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "i");
+        return regex.test(upperText);
+      });
+    }
+
+    // NGUỒN 1 (Vietxiaomi): Giữ nguyên 100% làm kênh thường
+    if (text1) {
+      const lines = text1.split('\n');
+      let currentInf = "";
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (line.startsWith('#EXTINF:')) {
+          currentInf = line;
+        } else if (line && !line.startsWith('#') && currentInf) {
+          normalChannelsList.push(`${currentInf}\n${line}`);
+          currentInf = "";
+        }
+      }
+    }
+
+    // NGUỒN 2 (THTT): Giữ nguyên 100% làm kênh thường, ĐỒNG THỜI lọc điều kiện kép (Thuộc nhóm hot AND là trận hot) để đưa lên Tâm Điểm
+    if (text2) {
+      const lines = text2.split('\n');
+      let currentInf = "";
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (line.startsWith('#EXTINF:')) {
+          currentInf = line;
+        } else if (line && !line.startsWith('#') && currentInf) {
+          let streamUrl = line;
+          
+          // Giữ nguyên nguồn gốc vào danh sách thường
+          normalChannelsList.push(`${currentInf}\n${streamUrl}`);
+
+          // Kiểm tra điều kiện kép cho Trận Tâm Điểm
+          const isInHotGroup = HOT_THTT_GROUPS.some(grp => currentInf.toLowerCase().includes(grp.toLowerCase()));
+          if (isInHotGroup && isMatchHot(currentInf)) {
+            let modifiedInf = currentInf
+              .replace(/group-title="[^"]*"/gi, 'group-title="🔥 TRẬN TÂM ĐIỂM"')
+              .replace(/,\s*(.*)$/, ', 🔥 [TÂM ĐIỂM] $1');
+            hotMatchesList.push(`${modifiedInf}\n${streamUrl}`);
+          }
+          currentInf = "";
+        }
+      }
+    }
+
+    // NGUỒN XOICHE.LIVE: Giữ nguyên 100% ở nhóm "Xôi Chè", ĐỒNG THỜI lọc trận hot đưa lên Tâm Điểm
     if (xoicheRes && xoicheRes.ok) {
       const html = await xoicheRes.text();
       
-      // Từ điển BLV được phân loại và chuẩn hóa link luồng
       const blvStreamMap = {
         "Xôi Gà": "https://live.khoga.space/live/livehub2/index.m3u8",
         "Xôi Gấc": "https://live.khoga.space/live/livehub11/index.m3u8",
@@ -96,12 +162,9 @@ export default async function handler(req, res) {
       }
 
       const defaultSportLogo = "https://cdn-icons-png.flaticon.com/512/53/53283.png";
-
       const linkRegex = /<a\s+[^>]*href=["']([^"']*(?:\/tran-dau\/|\/truc-tiep\/|\/live\/|\/xem\/)[^"']*)["'][^>]*>(.*?)<\/a>/gis;
       let match;
       const matchDict = {};
-
-      // Sắp xếp ưu tiên độ dài tên BLV giảm dần để đảm bảo tên ghép như "Xôi Gà" được quét trước "Gà"
       const sortedBlvKeys = Object.keys(blvStreamMap).sort((a, b) => b.length - a.length);
 
       while ((match = linkRegex.exec(html)) !== null) {
@@ -149,7 +212,6 @@ export default async function handler(req, res) {
 
         if (!rawText.includes("VS")) continue;
 
-        // Quét tìm BLV chuẩn xác theo thứ tự ưu tiên tên dài
         let foundBlvs = [];
         for (let blv of sortedBlvKeys) {
           let escapeBlv = blv.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -190,7 +252,9 @@ export default async function handler(req, res) {
             teams: formattedTeams,
             blvs: foundBlvs,
             fallbackUrl: fullUrl,
-            logo: matchLogo
+            logo: matchLogo,
+            detectedLeague: detectedLeague,
+            rawTextForHotCheck: `${detectedLeague} ${formattedTeams}`
           };
         } else {
           for (let b of foundBlvs) {
@@ -199,30 +263,45 @@ export default async function handler(req, res) {
         }
       }
 
-      const results = [];
       const vlcOpt = "#EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-      const groupTitle = "Xôi Chè";
+      
+      const normalXoicheList = [];
 
       for (let key in matchDict) {
         const data = matchDict[key];
         const timeStr = data.timeDate ? `[${data.timeDate}] ` : "";
+        const isXoicheMatchHot = isMatchHot(data.rawTextForHotCheck);
 
         if (data.blvs.length > 0) {
           data.blvs.forEach(blv => {
             const streamUrl = blvStreamMap[blv] || data.fallbackUrl;
-            results.push(`#EXTINF:-1 group-title="${groupTitle}" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
+            
+            // 1. Luôn thêm vào nhóm "Xôi Chè" chuẩn
+            normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
+            
+            // 2. Nếu khớp trận HOT -> Đưa thêm vào "🔥 TRẬN TÂM ĐIỂM"
+            if (isXoicheMatchHot) {
+              hotMatchesList.push(`#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 [TÂM ĐIỂM] ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
+            }
           });
         } else {
-          results.push(`#EXTINF:-1 group-title="${groupTitle}" tvg-logo="${data.logo}", ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
+          normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
+          
+          if (isXoicheMatchHot) {
+            hotMatchesList.push(`#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 [TÂM ĐIỂM] ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
+          }
         }
       }
 
-      if (results.length > 0) {
-        xoichePlaylist = "#EXTM3U\n\n" + results.join("\n\n") + "\n\n";
-      }
+      // Đưa toàn bộ các trận cào từ Xoiche vào danh sách thường bên dưới
+      normalChannelsList.unshift(...normalXoicheList);
     }
 
-    const combined = xoichePlaylist.trim() + "\n\n" + text1.trim() + "\n\n" + text2.trim();
+    // ĐÓNG GÓI M3U: "🔥 TRẬN TÂM ĐIỂM" LÊN VỊ TRÍ SỐ 1
+    const combined = "#EXTM3U\n\n" + 
+      hotMatchesList.join("\n\n") + 
+      (hotMatchesList.length > 0 ? "\n\n" : "") + 
+      normalChannelsList.join("\n\n");
 
     res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=1800');
     res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
