@@ -21,35 +21,35 @@ export default async function handler(req, res) {
     if (xoicheRes && xoicheRes.ok) {
       const html = await xoicheRes.text();
       
+      // Từ điển BLV được phân loại và chuẩn hóa link luồng
       const blvStreamMap = {
+        "Xôi Gà": "https://live.khoga.space/live/livehub2/index.m3u8",
+        "Xôi Gấc": "https://live.khoga.space/live/livehub11/index.m3u8",
+        "Xôi Bắp": "https://live.khoga.space/live/livehub6/index.m3u8",
+        "Xôi Xoài": "https://live.khoga.space/live/livehub3/index.m3u8",
+        "Khô Cay": "https://live.khoga.space/live/livehub9/index.m3u8",
+        "Khô Mật": "https://live.khoga.space/live/livehub13/index.m3u8",
+        "Khô Chè": "https://live.khoga.space/live/livehub5/index.m3u8",
+        "Khô Bò": "https://live.khoga.space/live/livehub12/index.m3u8",
+        "Tam Mao": "https://live.khoga.space/live/livehub8/index.m3u8",
+        "Tày": "https://live.khoga.space/live/livehub10/index.m3u8",
+        "Gà Rừng": "https://livecdn.cdnfastter.xyz/live/livehub4/index.m3u8",
+        "Pháo Thủ": "https://luong.phaohoa.live/live/phaohoa4/index.m3u8",
         "KaKa": "https://luong.phaohoa.live/live/phaohoa7/index.m3u8",
         "Tiểu Mây": "https://luong.phaohoa.live/live/phaohoa9/index.m3u8",
         "Văn Minh": "https://luong.phaohoa.live/live/phaohoa3/index.m3u8",
         "Người Kiến": "https://luong.phaohoa.live/live/phaohoa1/index.m3u8",
         "Famy": "https://luong.phaohoa.live/live/phaohoa6/index.m3u8",
-        "Pháo Thủ": "https://luong.phaohoa.live/live/phaohoa4/index.m3u8",
-        "Pháo": "https://luong.phaohoa.live/live/phaohoa4/index.m3u8",
         "Chim Nhỏ": "https://luong.phaohoa.live/live/phaohoa5/index.m3u8",
         "Văn Tài": "https://live.xoiche.tv/hls/vantai/index.m3u8",
         "Lee Sin": "https://luong.phaohoa.live/live/phaohoa10/index.m3u8",
-        "Gà Rừng": "https://livecdn.cdnfastter.xyz/live/livehub4/index.m3u8",
-        "Gà": "https://livecdn.cdnfastter.xyz/live/livehub4/index.m3u8",
         "Enzo": "https://luong.phaohoa.live/live/phaohoa2/index.m3u8",
         "Kền Kền": "https://luong.phaohoa.live/live/phaohoa6/index.m3u8",
         "Táo Dai": "https://livecdn.cdnfastter.xyz/live/livehub1/index.m3u8",
-        "Xôi Gấc": "https://live.khoga.space/live/livehub11/index.m3u8",
-        "Tam Mao": "https://live.khoga.space/live/livehub8/index.m3u8",
-        "Khô Cay": "https://live.khoga.space/live/livehub9/index.m3u8",
-        "Xôi Bắp": "https://live.khoga.space/live/livehub6/index.m3u8",
-        "Tày": "https://live.khoga.space/live/livehub10/index.m3u8",
-        "Khô Mật": "https://live.khoga.space/live/livehub13/index.m3u8",
-        "Khô Chè": "https://live.khoga.space/live/livehub5/index.m3u8",
-        "Khô Bò": "https://live.khoga.space/live/livehub12/index.m3u8",
-        "Xôi Gà": "https://live.khoga.space/live/livehub2/index.m3u8",
-        "Xôi Xoài": "https://live.khoga.space/live/livehub3/index.m3u8"
+        "Gà": "https://livecdn.cdnfastter.xyz/live/livehub4/index.m3u8",
+        "Pháo": "https://luong.phaohoa.live/live/phaohoa4/index.m3u8"
       };
 
-      // Từ điển logo chuẩn, sắc nét cho từng giải đấu
       const leagueLogoMap = {
         "PREMIER LEAGUE": "https://upload.wikimedia.org/wikipedia/en/f/f2/Premier_League_Logo.svg",
         "NGOẠI HẠNG ANH": "https://upload.wikimedia.org/wikipedia/en/f/f2/Premier_League_Logo.svg",
@@ -87,7 +87,7 @@ export default async function handler(req, res) {
         clean = clean.replace(/^[W|M|Nam|Nữ]\s+/i, '');
         clean = clean.replace(/^\d{1,2}[:\-]?\d{0,2}\s*/g, '');
         
-        const sortedLeagues = KNOWN_LEAGUES.sort((x, y) => y.length - x.length);
+        const sortedLeagues = [...KNOWN_LEAGUES].sort((a, b) => b.length - a.length);
         for (let lg of sortedLeagues) {
           let regexLg = new RegExp(`^${lg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[/\\-]?\\s*`, "ig");
           clean = clean.replace(regexLg, '');
@@ -95,12 +95,14 @@ export default async function handler(req, res) {
         return ultraClean(clean);
       }
 
-      // Icon bóng đá mặc định cực đẹp thay cho icon "TV" nếu không nhận diện được giải
       const defaultSportLogo = "https://cdn-icons-png.flaticon.com/512/53/53283.png";
 
       const linkRegex = /<a\s+[^>]*href=["']([^"']*(?:\/tran-dau\/|\/truc-tiep\/|\/live\/|\/xem\/)[^"']*)["'][^>]*>(.*?)<\/a>/gis;
       let match;
       const matchDict = {};
+
+      // Sắp xếp ưu tiên độ dài tên BLV giảm dần để đảm bảo tên ghép như "Xôi Gà" được quét trước "Gà"
+      const sortedBlvKeys = Object.keys(blvStreamMap).sort((a, b) => b.length - a.length);
 
       while ((match = linkRegex.exec(html)) !== null) {
         let href = match[1];
@@ -113,9 +115,8 @@ export default async function handler(req, res) {
 
         rawText = rawText.replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
-        // KHỞI TẠO LẠI TRẠNG THÁI CHO TỪNG TRẬN ĐẤU (Tránh bị dính logo trận trước)
         let detectedLeague = "";
-        const sortedLeagues = KNOWN_LEAGUES.sort((x, y) => y.length - x.length);
+        const sortedLeagues = [...KNOWN_LEAGUES].sort((a, b) => b.length - a.length);
         for (let lg of sortedLeagues) {
           let regexLg = new RegExp(`\\b${lg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "ig");
           if (regexLg.test(rawText)) {
@@ -148,10 +149,11 @@ export default async function handler(req, res) {
 
         if (!rawText.includes("VS")) continue;
 
+        // Quét tìm BLV chuẩn xác theo thứ tự ưu tiên tên dài
         let foundBlvs = [];
-        for (let blv in blvStreamMap) {
+        for (let blv of sortedBlvKeys) {
           let escapeBlv = blv.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          let regex = new RegExp(`(BLV\\s*\\-\\s*)?(${escapeBlv})`, "gi");
+          let regex = new RegExp(`(?:BLV\\s*\\-\\s*|BLV\\s*)?(${escapeBlv})`, "gi");
           if (regex.test(rawText)) {
             let stdName = (blv === "Gà") ? "Gà Rừng" : (blv === "Pháo") ? "Pháo Thủ" : blv;
             if (!foundBlvs.includes(stdName)) foundBlvs.push(stdName);
@@ -159,7 +161,7 @@ export default async function handler(req, res) {
           }
         }
 
-        const garbageWords = ["Nghỉ giữa hiệp", "Nghỉ giữa trận", "Đang diễn ra", "Đang đá", "Hiệp 1", "Hiệp 2", "HT", "FT", "CƯỢC", "FB88", "8Xbet", "SV368", "Nhà đài", "Tất cả", "Trận hot", "BLV", "Xôi"];
+        const garbageWords = ["Nghỉ giữa hiệp", "Nghỉ giữa trận", "Đang diễn ra", "Đang đá", "Hiệp 1", "Hiệp 2", "HT", "FT", "CƯỢC", "FB88", "8Xbet", "SV368", "Nhà đài", "Tất cả", "Trận hot", "BLV"];
         for (let g of garbageWords) {
           rawText = rawText.replace(new RegExp(`(^|\\s)${g}(\\s|$)`, "ig"), ' ');
         }
@@ -180,7 +182,6 @@ export default async function handler(req, res) {
         const dictKey = `${team1} VS ${team2} - ${timeDateDisplay}`;
         const fullUrl = href.startsWith('http') ? href : "https://xoiche.live" + (href.startsWith('/') ? '' : '/') + href;
 
-        // Gán logo chuẩn theo giải đấu, nếu không khớp lấy icon bóng đá mặc định
         let matchLogo = leagueLogoMap[detectedLeague] || defaultSportLogo;
 
         if (!matchDict[dictKey]) {
