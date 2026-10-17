@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     const text1 = await res1.text();
     const text2 = await res2.text();
 
-    const hotMatchesList = [];
+    const hotMatchesArray = []; // Mảng chứa các trận hot để sắp xếp thời gian và tạo kênh ảo
     const normalChannelsList = [];
 
     // Danh sách từ khóa các Giải đấu lớn & Đội bóng lớn để lọc trận HOT
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       "V-LEAGUE", "V.LEAGUE", "WORLD CUP", "EURO", "ASIAN CUP", "AFF CUP", "ASEAN CUP",
       "MANCHESTER UNITED", "MAN UTD", "MU", "MANCHESTER CITY", "MAN CITY", "LIVERPOOL", 
       "ARSENAL", "CHELSEA", "REAL MADRID", "BARCELONA", "BARCA", "BAYERN", "PSG", 
-      "JUVENTUS", "INTER", "AC MILAN"
+      "JUVENTUS", "INTER", "AC MILAN", "ROMA", "ATLETICO", "DORTMUND"
     ];
 
     // Danh sách tên nhóm hot ở Nguồn 2 (THTT)
@@ -42,7 +42,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // NGUỒN 1 (Vietxiaomi): Giữ nguyên 100% làm kênh thường
+    // Helper trích xuất thời gian để sắp xếp chuẩn xác
+    function extractTimeString(text) {
+      const timeMatch = text.match(/\[(\d{1,2}:\d{2})\s*-\s*(\d{1,2})\/(\d{1,2})\]/) || 
+                        text.match(/\[(\d{1,2}:\d{2})\s*-\s*(\d{1,2})\/(\d{1,2})\/\d{2,4}\]/) ||
+                        text.match(/\[(\d{1,2}:\d{2})\]/);
+      if (timeMatch) {
+        return timeMatch[1];
+      }
+      return "00:00";
+    }
+
+    // NGUỒN 1 (Vietxiaomi)
     if (text1) {
       const lines = text1.split('\n');
       let currentInf = "";
@@ -57,7 +68,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // NGUỒN 2 (THTT): Giữ nguyên 100% làm kênh thường, ĐỒNG THỜI lọc điều kiện kép (Thuộc nhóm hot AND là trận hot) để đưa lên Tâm Điểm
+    // NGUỒN 2 (THTT)
     if (text2) {
       const lines = text2.split('\n');
       let currentInf = "";
@@ -67,24 +78,23 @@ export default async function handler(req, res) {
           currentInf = line;
         } else if (line && !line.startsWith('#') && currentInf) {
           let streamUrl = line;
-          
-          // Giữ nguyên nguồn gốc vào danh sách thường
           normalChannelsList.push(`${currentInf}\n${streamUrl}`);
 
-          // Kiểm tra điều kiện kép cho Trận Tâm Điểm
+          // Kiểm tra điều kiện trận Hot từ THTT
           const isInHotGroup = HOT_THTT_GROUPS.some(grp => currentInf.toLowerCase().includes(grp.toLowerCase()));
           if (isInHotGroup && isMatchHot(currentInf)) {
-            let modifiedInf = currentInf
-              .replace(/group-title="[^"]*"/gi, 'group-title="🔥 TRẬN TÂM ĐIỂM"')
-              .replace(/,\s*(.*)$/, ', 🔥 [TÂM ĐIỂM] $1');
-            hotMatchesList.push(`${modifiedInf}\n${streamUrl}`);
+            hotMatchesArray.push({
+              timeSort: extractTimeString(currentInf),
+              rawInfo: currentInf,
+              streamUrl: streamUrl
+            });
           }
           currentInf = "";
         }
       }
     }
 
-    // NGUỒN XOICHE.LIVE: Giữ nguyên 100% ở nhóm "Xôi Chè", ĐỒNG THỜI lọc trận hot đưa lên Tâm Điểm
+    // NGUỒN XOICHE.LIVE
     if (xoicheRes && xoicheRes.ok) {
       const html = await xoicheRes.text();
       
@@ -133,7 +143,8 @@ export default async function handler(req, res) {
         "PREMIER LEAGUE", "NGOẠI HẠNG ANH", "LA LIGA", "SERIE A", "BUNDESLIGA", "LIGUE 1", 
         "CHAMPIONS LEAGUE", "CÚP C1", "EUROPA LEAGUE", "CÚP C2", "CONFERENCE LEAGUE", 
         "V-LEAGUE 1", "V-LEAGUE", "V.LEAGUE 1", "V.LEAGUE", "FA CUP", "CARABAO CUP", 
-        "COPPA ITALIA", "CÚP NHÀ VUA", "SAUDI PRO LEAGUE", "MLS", "J-LEAGUE", "K-LEAGUE"
+        "COPPA ITALIA", "CÚP NHÀ VUA", "SAUDI PRO LEAGUE", "MLS", "J-LEAGUE", "K-LEAGUE",
+        "EFELER LIGI", "VOLLEYBALL", "BÓNG CHUYỀN", "BÓNG RỔ", "NBA"
       ];
 
       function ultraClean(str) {
@@ -150,14 +161,23 @@ export default async function handler(req, res) {
       function extractCleanTeam(teamStr) {
         if (!teamStr) return "";
         let clean = ultraClean(teamStr);
-        clean = clean.replace(/^[W|M|Nam|Nữ]\s+/i, '');
-        clean = clean.replace(/^\d{1,2}[:\-]?\d{0,2}\s*/g, '');
+
+        const garbagePrefixes = [
+          /^(W|M|Nam|Nữ)\s+/i,
+          /^\d{1,2}[:\-]?\d{0,2}\s*/g,
+          /^(VĐQG|Cúp|Cup|Giải|Bóng chuyền|Bóng rổ|Thổ Nhĩ Kỳ|Ý|Anh|Pháp|Đức|Tây Ban Nha)\s+/i
+        ];
         
+        garbagePrefixes.forEach(rgx => {
+          clean = clean.replace(rgx, '');
+        });
+
         const sortedLeagues = [...KNOWN_LEAGUES].sort((a, b) => b.length - a.length);
         for (let lg of sortedLeagues) {
           let regexLg = new RegExp(`^${lg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[/\\-]?\\s*`, "ig");
           clean = clean.replace(regexLg, '');
         }
+
         return ultraClean(clean);
       }
 
@@ -223,7 +243,7 @@ export default async function handler(req, res) {
           }
         }
 
-        const garbageWords = ["Nghỉ giữa hiệp", "Nghỉ giữa trận", "Đang diễn ra", "Đang đá", "Hiệp 1", "Hiệp 2", "HT", "FT", "CƯỢC", "FB88", "8Xbet", "SV368", "Nhà đài", "Tất cả", "Trận hot", "BLV"];
+        const garbageWords = ["Nghỉ giữa hiệp", "Nghỉ giữa trận", "Đang diễn ra", "Đang đá", "Hiệp 1", "Hiệp 2", "HT", "FT", "CƯỢC", "FB88", "8Xbet", "SV368", "Nhà đài", "Tất cả", "Trận hot", "BLV", "Nam", "Nữ"];
         for (let g of garbageWords) {
           rawText = rawText.replace(new RegExp(`(^|\\s)${g}(\\s|$)`, "ig"), ' ');
         }
@@ -241,7 +261,7 @@ export default async function handler(req, res) {
         else if (!timeStr && dateStr) timeDateDisplay = dateStr;
 
         const formattedTeams = `${team1} VS ${team2}`;
-        const dictKey = `${team1} VS ${team2} - ${timeDateDisplay}`;
+        const dictKey = `${formattedTeams}_${timeDateDisplay}`;
         const fullUrl = href.startsWith('http') ? href : "https://xoiche.live" + (href.startsWith('/') ? '' : '/') + href;
 
         let matchLogo = leagueLogoMap[detectedLeague] || defaultSportLogo;
@@ -253,7 +273,6 @@ export default async function handler(req, res) {
             blvs: foundBlvs,
             fallbackUrl: fullUrl,
             logo: matchLogo,
-            detectedLeague: detectedLeague,
             rawTextForHotCheck: `${detectedLeague} ${formattedTeams}`
           };
         } else {
@@ -264,7 +283,6 @@ export default async function handler(req, res) {
       }
 
       const vlcOpt = "#EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-      
       const normalXoicheList = [];
 
       for (let key in matchDict) {
@@ -275,32 +293,49 @@ export default async function handler(req, res) {
         if (data.blvs.length > 0) {
           data.blvs.forEach(blv => {
             const streamUrl = blvStreamMap[blv] || data.fallbackUrl;
-            
-            // 1. Luôn thêm vào nhóm "Xôi Chè" chuẩn
             normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
             
-            // 2. Nếu khớp trận HOT -> Đưa thêm vào "🔥 TRẬN TÂM ĐIỂM"
             if (isXoicheMatchHot) {
-              hotMatchesList.push(`#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 [TÂM ĐIỂM] ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
+              let infLine = `#EXTINF:-1 group-title="🔥 KÊNH TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 TRẬN HOT: ${timeStr}${data.teams} (BLV ${blv})`;
+              hotMatchesArray.push({
+                timeSort: data.timeDate || "00:00",
+                entry: `${infLine}\n${vlcOpt}\n${streamUrl}`
+              });
             }
           });
         } else {
           normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
           
           if (isXoicheMatchHot) {
-            hotMatchesList.push(`#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 [TÂM ĐIỂM] ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
+            let infLine = `#EXTINF:-1 group-title="🔥 KÊNH TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 TRẬN HOT: ${timeStr}${data.teams}`;
+            hotMatchesArray.push({
+              timeSort: data.timeDate || "00:00",
+              entry: `${infLine}\n${vlcOpt}\n${data.fallbackUrl}`
+            });
           }
         }
       }
 
-      // Đưa toàn bộ các trận cào từ Xoiche vào danh sách thường bên dưới
       normalChannelsList.unshift(...normalXoicheList);
     }
 
-    // ĐÓNG GÓI M3U: "🔥 TRẬN TÂM ĐIỂM" LÊN VỊ TRÍ SỐ 1
+    // 2. Sắp xếp các trận hot theo thời gian từ sớm đến muộn
+    hotMatchesArray.sort((a, b) => a.timeSort.localeCompare(b.timeSort));
+
+    // 3. Biến đổi thành các Kênh ảo hot đánh số thứ tự độc lập: 🔥 KÊNH 01, 🔥 KÊNH 02,...
+    const virtualHotChannels = hotMatchesArray.map((item, index) => {
+      const channelNum = String(index + 1).padStart(2, '0');
+      // Thay thế tên kênh ảo vào dòng #EXTINF gốc
+      let modifiedEntry = item.entry.replace(
+        /#EXTINF:-1\s+group-title="[^"]*"\s+tvg-logo="([^"]*)",\s*(.*)/,
+        `#EXTINF:-1 group-title="🔥 KÊNH TÂM ĐIỂM" tvg-logo="$1", 🔥 KÊNH ${channelNum}: $2`
+      );
+      return modifiedEntry;
+    });
+
+    // Đóng gói kết quả M3U hoàn chỉnh
     const combined = "#EXTM3U\n\n" + 
-      hotMatchesList.join("\n\n") + 
-      (hotMatchesList.length > 0 ? "\n\n" : "") + 
+      (virtualHotChannels.length > 0 ? virtualHotChannels.join("\n\n") + "\n\n" : "") + 
       normalChannelsList.join("\n\n");
 
     res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=1800');
