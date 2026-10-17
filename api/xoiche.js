@@ -1,5 +1,10 @@
 export default async function handler(req, res) {
-  async function fetchWithTimeout(resource, options = {}, timeoutMs = 5000) {
+  // Luôn đặt Header trả về M3U chuẩn
+  res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+  res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  async function fetchWithTimeout(resource, options = {}, timeoutMs = 6000) {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -17,19 +22,34 @@ export default async function handler(req, res) {
   }
 
   try {
-    const xoicheRes = await fetchWithTimeout("https://xoiche.tv", {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-      }
-    }, 5000);
+    // Thử fetch qua 2 domain dự phòng của Xôi Chè
+    const domains = ["https://xoiche.tv", "https://xoiche1.live"];
+    let xoicheRes = null;
 
-    if (!xoicheRes || !xoicheRes.ok) {
-      return res.status(500).send("Không thể kết nối đến nguồn Xôi Chè.");
+    for (const domain of domains) {
+      const resFetch = await fetchWithTimeout(domain, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+      }, 5000);
+
+      if (resFetch && resFetch.ok) {
+        xoicheRes = resFetch;
+        break;
+      }
+    }
+
+    if (!xoicheRes) {
+      // Trả về playlist thông báo thay vì ngắt kết nối
+      const fallbackM3u = `#EXTM3U\n#EXTINF:-1 group-title="Xôi Chè", ⚠️ Nguồn Xôi Chè đang bảo trì / bị chặn IP\nhttps://live.khoga.space/live/livehub2/index.m3u8`;
+      return res.status(200).send(fallbackM3u);
     }
 
     const html = await xoicheRes.text().catch(() => "");
     if (!html) {
-      return res.status(500).send("Nội dung HTML trả về trống.");
+      const fallbackM3u = `#EXTINF:-1 group-title="Xôi Chè", ⚠️ Không lấy được danh sách trận đấu\nhttps://live.khoga.space/live/livehub2/index.m3u8`;
+      return res.status(200).send("#EXTM3U\n" + fallbackM3u);
     }
 
     const blvStreamMap = {
@@ -245,14 +265,11 @@ export default async function handler(req, res) {
       }
     }
 
-    const combined = "#EXTM3U\n\n" + xoicheList.join("\n\n");
+    const combined = "#EXTM3U\n\n" + (xoicheList.length > 0 ? xoicheList.join("\n\n") : `#EXTINF:-1 group-title="Xôi Chè", Kênh Mẫu Dự Phòng\nhttps://live.khoga.space/live/livehub2/index.m3u8`);
 
-    res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=1800');
-    res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(200).send(combined);
 
   } catch (err) {
-    res.status(500).send("Lỗi hệ thống: " + err.message);
+    res.status(200).send("#EXTM3U\n#EXTINF:-1 group-title=\"Xôi Chè\", Lỗi Hệ Thống\nhttps://live.khoga.space/live/livehub2/index.m3u8");
   }
 }
