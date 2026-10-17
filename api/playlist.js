@@ -3,7 +3,6 @@ export default async function handler(req, res) {
   const url2 = "https://thtt.pages.dev/tttt.m3u";
 
   try {
-    // 1. Kéo đồng thời nguồn tĩnh và trang chủ xoiche.live
     const [res1, res2, xoicheRes] = await Promise.all([
       fetch(url1),
       fetch(url2),
@@ -22,7 +21,6 @@ export default async function handler(req, res) {
     if (xoicheRes && xoicheRes.ok) {
       const html = await xoicheRes.text();
       
-      // Từ điển BLV và luồng stream tương ứng
       const blvStreamMap = {
         "KaKa": "https://luong.phaohoa.live/live/phaohoa7/index.m3u8",
         "Tiểu Mây": "https://luong.phaohoa.live/live/phaohoa9/index.m3u8",
@@ -51,20 +49,37 @@ export default async function handler(req, res) {
         "Xôi Xoài": "https://live.khoga.space/live/livehub3/index.m3u8"
       };
 
-      // Lấy logo trang web tự động qua Regex
-      let mainSiteLogo = "https://cdn-icons-png.flaticon.com/512/8112/8112602.png";
-      const logoMatch = html.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
+      const KNOWN_LEAGUES = [
+        "ELITE", "ACL ELITE", "UEFA", "AFC", "J1 LEAGUE", "SV.LEAGUE NHẬT BẢN", "SV.LEAGUE", 
+        "SULTANLAR LIGI NỮ", "SULTANLAR LIGI", "SERIE A1 Ý", "SERIE A1", 
+        "AFRICA CUP OF NATIONS QUALIFICATION", "AFRICA CUP OF NATIONS QUALIFIERS", 
+        "AFRICA CUP OF NATIONS", "AFCON QUALIFICATION", "AFCON QUALIFIERS", "AFCON",
+        "WORLD CUP QUALIFICATION", "WORLD CUP QUALIFIERS", "WC QUALIFICATION", "WC QUALIFIERS",
+        "UEFA EURO QUALIFICATION", "EURO QUALIFICATION", "UEFA NATIONS LEAGUE", "NATIONS LEAGUE",
+        "CÚP VÙNG VỊNH", "CUP VÙNG VỊNH", "GULF CUP", "CÚP QUỐC GIA", "CUP QUỐC GIA", "NATIONAL CUP",
+        "ASIAD WOMEN", "ASIAD U23", "ASIAD", "ASIAN GAMES", "FF ASEAN CUP", "ASEAN CUP", "AFF CUP",
+        "GIAO HỮU QT", "GIAO HỮU QUỐC TẾ", "GIAO HỮU CLB", "GIAO HỮU", "CLUB FRIENDLIES", "FRIENDLY",
+        "V-LEAGUE 1", "V-LEAGUE 2", "V-LEAGUE", "V.LEAGUE 1", "V.LEAGUE 2", "V.LEAGUE",
+        "PREMIER LEAGUE", "NGOẠI HẠNG ANH", "LA LIGA", "SERIE A", "BUNDESLIGA", "LIGUE 1", 
+        "CHAMPIONS LEAGUE", "CÚP C1", "EUROPA LEAGUE", "CÚP C2", "CONFERENCE LEAGUE", "CÚP C3", 
+        "CÚP C4", "AFC CHAMPIONS LEAGUE", "AFC CUP", "FA CUP", "CARABAO CUP", "CÚP NHÀ VUA", 
+        "COPPA ITALIA", "MLS", "SAUDI PRO LEAGUE", "WORLD CUP", "FIFA WORLD CUP", "COPPA AMERICA", 
+        "EURO", "SIÊU CÚP", "SUPER CUP", "CÚP LIÊN ĐOÀN", "CUP LIÊN ĐOÀN", "HẠNG NHẤT ANH", 
+        "CHAMPIONSHIP", "LIGUE 2", "SERIE B", "BUNDESLIGA 2", "LA LIGA 2", "J-LEAGUE", "K-LEAGUE", 
+        "THAI LEAGUE", "EFELER LIGI THỔ NHĨ KỲ", "EFELER LIGI"
+      ];
+
+      // Lấy logo chuẩn của xoiche làm logo group
+      let mainSiteLogo = "https://xoiche.live/favicon.ico";
+      const logoMatch = html.match(/<img[^>]+src=["']([^"']+\.(png|ico|jpg|webp))["'][^>]*>/i);
       if (logoMatch && logoMatch[1]) {
         let src = logoMatch[1];
         mainSiteLogo = src.startsWith('http') ? src : "https://xoiche.live" + (src.startsWith('/') ? '' : '/') + src;
       }
 
-      // Quét các thẻ a chứa link trận đấu
       const linkRegex = /<a\s+[^>]*href=["']([^"']*(?:\/tran-dau\/|\/truc-tiep\/|\/live\/|\/xem\/)[^"']*)["'][^>]*>(.*?)<\/a>/gis;
       let match;
       const matchDict = {};
-      const now = new Date();
-      const defaultDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`;
 
       while ((match = linkRegex.exec(html)) !== null) {
         let href = match[1];
@@ -74,6 +89,9 @@ export default async function handler(req, res) {
 
         const isMatch = /VS|vs|Trực tiếp|Sắp diễn ra|\b\d{1,3}'|\b\d{1,2}\s*[:\-]\s*\d{1,2}\b/i.test(rawText);
         if (!isMatch) continue;
+
+        // Xóa mã HTML entities thừa như &#39;
+        rawText = rawText.replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
         let timeStr = "", dateStr = "";
         const timeMatch = rawText.match(/\b([0-1]?[0-9]|2[0-3]):([0-5][0-9])\b/);
@@ -89,7 +107,17 @@ export default async function handler(req, res) {
         rawText = rawText.replace(/\b202\d\b/g, ' ');
         rawText = rawText.replace(/\b\d{1,2}\s*[:\-]\s*\d{1,2}\b/g, ' VS ');
         rawText = rawText.replace(/\s+-\s+/g, ' VS ').replace(/\bvs\b/gi, ' VS ');
+        
+        // Xóa các ký tự phút trận đấu kiểu như "82'" hoặc số phút linh tinh
+        rawText = rawText.replace(/\b\d{1,3}'/g, ' ');
         rawText = rawText.replace(/Trực tiếp|Trực Tiếp|Đang đá|Đang live|\bLIVE\b|Sắp diễn ra/ig, ' ');
+
+        // Xóa tên các giải đấu ra khỏi chuỗi text
+        const sortedLeagues = KNOWN_LEAGUES.sort((x, y) => y.length - x.length);
+        for (let lg of sortedLeagues) {
+          let regexLg = new RegExp(`\\b${lg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "ig");
+          rawText = rawText.replace(regexLg, ' ');
+        }
 
         if (!rawText.includes("VS")) continue;
 
@@ -141,13 +169,13 @@ export default async function handler(req, res) {
 
       const results = [];
       const vlcOpt = "#EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+      
+      // Gộp chung tất cả vào 1 group duy nhất tên là "Xôi Chè"
+      const groupTitle = "Xôi Chè";
 
       for (let key in matchDict) {
         const data = matchDict[key];
         const timeStr = data.timeDate ? `[${data.timeDate}] ` : "";
-        const dateMatch = data.timeDate ? data.timeDate.match(/\b\d{1,2}\/\d{1,2}\b/) : null;
-        const matchDate = dateMatch ? dateMatch[0] : defaultDate;
-        const groupTitle = `🔥 Trận Tâm Điểm ${matchDate}`;
 
         if (data.blvs.length > 0) {
           data.blvs.forEach(blv => {
@@ -164,10 +192,8 @@ export default async function handler(req, res) {
       }
     }
 
-    // Ghép toàn bộ dữ liệu cào tự động từ Xoiche lên đầu, sau đó đến 2 nguồn cũ
     const combined = xoichePlaylist.trim() + "\n\n" + text1.trim() + "\n\n" + text2.trim();
 
-    // Cấu hình Cache 15 phút (900s) để tối ưu hiệu suất và chống nghẽn mạng
     res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=1800');
     res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
