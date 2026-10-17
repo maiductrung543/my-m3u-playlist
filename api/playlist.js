@@ -49,37 +49,25 @@ export default async function handler(req, res) {
         "Xôi Xoài": "https://live.khoga.space/live/livehub3/index.m3u8"
       };
 
-      // Từ điển logo chuẩn cho các giải đấu lớn (dạng PNG sắc nét tương thích mọi app IPTV)
+      // Từ điển logo chuẩn, sắc nét cho từng giải đấu
       const leagueLogoMap = {
-        "PREMIER LEAGUE": "https://assets.laliga.com/assets/logos/laliga-v/laliga-v-300x300.png", // Thay bằng link logo chuẩn nếu muốn
-        "NGOẠI HẠNG ANH": "https://cdn.iconscout.com/icon/free/png-512/free-premier-league-logo-icon-download-in-svg-png-gif-file-formats--football-sports-club-brand-vol-7-pack-logos-icons-3384874.png?f=webp&w=256",
-        "LA LIGA": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/LaLiga_logo_2023.svg/256px-LaLiga_logo_2023.svg.png",
-        "SERIE A": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Serie_A_logo_%282019%29.svg/256px-Serie_A_logo_%282019%29.svg.png",
-        "BUNDESLIGA": "https://upload.wikimedia.org/wikipedia/en/thumb/d/df/Bundesliga_logo_%282017%29.svg/256px-Bundesliga_logo_%282017%29.svg.png",
-        "LIGUE 1": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Ligue_1_%28logo%29.svg/256px-Ligue_1_%28logo%29.svg.png",
-        "CHAMPIONS LEAGUE": "https://upload.wikimedia.org/wikipedia/en/thumb/f/f3/UEFA_Champions_League_logo_2.svg/256px-UEFA_Champions_League_logo_2.svg.png",
-        "EUROPA LEAGUE": "https://upload.wikimedia.org/wikipedia/en/thumb/5/5f/UEFA_Europa_League_logo_2021.svg/256px-UEFA_Europa_League_logo_2021.svg.png"
+        "PREMIER LEAGUE": "https://upload.wikimedia.org/wikipedia/en/f/f2/Premier_League_Logo.svg",
+        "NGOẠI HẠNG ANH": "https://upload.wikimedia.org/wikipedia/en/f/f2/Premier_League_Logo.svg",
+        "LA LIGA": "https://upload.wikimedia.org/wikipedia/commons/5/54/LaLiga_logo_2023.svg",
+        "SERIE A": "https://upload.wikimedia.org/wikipedia/commons/e/e1/Serie_A_logo_%282019%29.svg",
+        "BUNDESLIGA": "https://upload.wikimedia.org/wikipedia/en/d/df/Bundesliga_logo_%282017%29.svg",
+        "LIGUE 1": "https://upload.wikimedia.org/wikipedia/commons/1/1e/Ligue_1_%28logo%29.svg",
+        "CHAMPIONS LEAGUE": "https://upload.wikimedia.org/wikipedia/en/f/f3/UEFA_Champions_League_logo_2.svg",
+        "CÚP C1": "https://upload.wikimedia.org/wikipedia/en/f/f3/UEFA_Champions_League_logo_2.svg",
+        "EUROPA LEAGUE": "https://upload.wikimedia.org/wikipedia/en/5/5f/UEFA_Europa_League_logo_2021.svg",
+        "V-LEAGUE": "https://upload.wikimedia.org/wikipedia/vi/thumb/2/25/V.League_1_logo_%282023%29.svg/256px-V.League_1_logo_%282023%29.svg.png"
       };
 
       const KNOWN_LEAGUES = [
-        "THỔ NHĨ KỲ NAM", "THỔ NHĨ KỲ", "Ý", "ANH", "TÂY BAN NHA", "PHÁP", "ĐỨC", "Ý / W",
-        "ELITE", "ACL ELITE", "UEFA", "AFC", "J1 LEAGUE", "SV.LEAGUE NHẬT BẢN", "SV.LEAGUE", 
-        "SULTANLAR LIGI NỮ", "SULTANLAR LIGI", "SERIE A1 Ý", "SERIE A1", 
-        "AFRICA CUP OF NATIONS QUALIFICATION", "AFRICA CUP OF NATIONS QUALIFIERS", 
-        "AFRICA CUP OF NATIONS", "AFCON QUALIFICATION", "AFCON QUALIFIERS", "AFCON",
-        "WORLD CUP QUALIFICATION", "WORLD CUP QUALIFIERS", "WC QUALIFICATION", "WC QUALIFIERS",
-        "UEFA EURO QUALIFICATION", "EURO QUALIFICATION", "UEFA NATIONS LEAGUE", "NATIONS LEAGUE",
-        "CÚP VÙNG VỊNH", "CUP VÙNG VỊNH", "GULF CUP", "CÚP QUỐC GIA", "CUP QUỐC GIA", "NATIONAL CUP",
-        "ASIAD WOMEN", "ASIAD U23", "ASIAD", "ASIAN GAMES", "FF ASEAN CUP", "ASEAN CUP", "AFF CUP",
-        "GIAO HỮU QT", "GIAO HỮU QUỐC TẾ", "GIAO HỮU CLB", "GIAO HỮU", "CLUB FRIENDLIES", "FRIENDLY",
-        "V-LEAGUE 1", "V-LEAGUE 2", "V-LEAGUE", "V.LEAGUE 1", "V.LEAGUE 2", "V.LEAGUE",
         "PREMIER LEAGUE", "NGOẠI HẠNG ANH", "LA LIGA", "SERIE A", "BUNDESLIGA", "LIGUE 1", 
-        "CHAMPIONS LEAGUE", "CÚP C1", "EUROPA LEAGUE", "CÚP C2", "CONFERENCE LEAGUE", "CÚP C3", 
-        "CÚP C4", "AFC CHAMPIONS LEAGUE", "AFC CUP", "FA CUP", "CARABAO CUP", "CÚP NHÀ VUA", 
-        "COPPA ITALIA", "MLS", "SAUDI PRO LEAGUE", "WORLD CUP", "FIFA WORLD CUP", "COPPA AMERICA", 
-        "EURO", "SIÊU CÚP", "SUPER CUP", "CÚP LIÊN ĐOÀN", "CUP LIÊN ĐOÀN", "HẠNG NHẤT ANH", 
-        "CHAMPIONSHIP", "LIGUE 2", "SERIE B", "BUNDESLIGA 2", "LA LIGA 2", "J-LEAGUE", "K-LEAGUE", 
-        "THAI LEAGUE", "EFELER LIGI THỔ NHĨ KỲ", "EFELER LIGI"
+        "CHAMPIONS LEAGUE", "CÚP C1", "EUROPA LEAGUE", "CÚP C2", "CONFERENCE LEAGUE", 
+        "V-LEAGUE 1", "V-LEAGUE", "V.LEAGUE 1", "V.LEAGUE", "FA CUP", "CARABAO CUP", 
+        "COPPA ITALIA", "CÚP NHÀ VUA", "SAUDI PRO LEAGUE", "MLS", "J-LEAGUE", "K-LEAGUE"
       ];
 
       function ultraClean(str) {
@@ -107,12 +95,8 @@ export default async function handler(req, res) {
         return ultraClean(clean);
       }
 
-      let defaultLogo = "https://xoiche.live/favicon.ico";
-      const logoMatch = html.match(/<img[^>]+src=["']([^"']+\.(png|ico|jpg|webp))["'][^>]*>/i);
-      if (logoMatch && logoMatch[1]) {
-        let src = logoMatch[1];
-        defaultLogo = src.startsWith('http') ? src : "https://xoiche.live" + (src.startsWith('/') ? '' : '/') + src;
-      }
+      // Icon bóng đá mặc định cực đẹp thay cho icon "TV" nếu không nhận diện được giải
+      const defaultSportLogo = "https://cdn-icons-png.flaticon.com/512/53/53283.png";
 
       const linkRegex = /<a\s+[^>]*href=["']([^"']*(?:\/tran-dau\/|\/truc-tiep\/|\/live\/|\/xem\/)[^"']*)["'][^>]*>(.*?)<\/a>/gis;
       let match;
@@ -129,7 +113,7 @@ export default async function handler(req, res) {
 
         rawText = rawText.replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
-        // Nhận diện giải đấu trước khi xóa nó đi
+        // KHỞI TẠO LẠI TRẠNG THÁI CHO TỪNG TRẬN ĐẤU (Tránh bị dính logo trận trước)
         let detectedLeague = "";
         const sortedLeagues = KNOWN_LEAGUES.sort((x, y) => y.length - x.length);
         for (let lg of sortedLeagues) {
@@ -196,8 +180,8 @@ export default async function handler(req, res) {
         const dictKey = `${team1} VS ${team2} - ${timeDateDisplay}`;
         const fullUrl = href.startsWith('http') ? href : "https://xoiche.live" + (href.startsWith('/') ? '' : '/') + href;
 
-        // Chọn logo tương ứng với giải đấu, nếu không có thì dùng logo mặc định
-        let matchLogo = leagueLogoMap[detectedLeague] || defaultLogo;
+        // Gán logo chuẩn theo giải đấu, nếu không khớp lấy icon bóng đá mặc định
+        let matchLogo = leagueLogoMap[detectedLeague] || defaultSportLogo;
 
         if (!matchDict[dictKey]) {
           matchDict[dictKey] = {
@@ -216,7 +200,7 @@ export default async function handler(req, res) {
 
       const results = [];
       const vlcOpt = "#EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-      const groupTitle = "Xôi Chè"; // Giữ chung một group duy nhất
+      const groupTitle = "Xôi Chè";
 
       for (let key in matchDict) {
         const data = matchDict[key];
