@@ -60,14 +60,26 @@ export default async function handler(req, res) {
       });
     }
 
-    function extractTimeString(text) {
-      const timeMatch = text.match(/\[(\d{1,2}:\d{2})\s*-\s*(\d{1,2})\/(\d{1,2})\]/) || 
-                        text.match(/\[(\d{1,2}:\d{2})\s*-\s*(\d{1,2})\/(\d{1,2})\/\d{2,4}\]/) ||
-                        text.match(/\[(\d{1,2}:\d{2})\]/);
-      if (timeMatch) {
-        return timeMatch[1];
+    // Hàm trích xuất thời gian đầy đủ (Ngày + Giờ) để sắp xếp chuẩn theo dòng thời gian
+    function getSortTimestamp(text) {
+      // Khớp định dạng [HH:mm - DD/MM] hoặc [HH:mm - DD/MM/YYYY]
+      const matchFull = text.match(/\[(\d{1,2}):(\d{2})\s*-\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\]/);
+      if (matchFull) {
+        const [, hh, mm, dd, MM, yy] = matchFull;
+        const year = yy ? (yy.length === 2 ? '20' + yy : yy) : '2026';
+        const month = MM.padStart(2, '0');
+        const day = dd.padStart(2, '0');
+        const hour = hh.padStart(2, '0');
+        const minute = mm.padStart(2, '0');
+        return `${year}-${month}-${day} ${hour}:${minute}`;
       }
-      return "00:00";
+      // Nếu chỉ có giờ [HH:mm]
+      const matchTimeOnly = text.match(/\[(\d{1,2}):(\d{2})\]/);
+      if (matchTimeOnly) {
+        const [, hh, mm] = matchTimeOnly;
+        return `2026-10-17 ${hh.padStart(2, '0')}:${mm.padStart(2, '0')}`;
+      }
+      return '2026-10-17 00:00';
     }
 
     // NGUỒN 1 (Vietxiaomi)
@@ -85,7 +97,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // NGUỒN 2 (THTT) - Đã sửa định dạng chuẩn có thuộc tính entry
+    // NGUỒN 2 (THTT)
     if (text2) {
       const lines = text2.split('\n');
       let currentInf = "";
@@ -99,9 +111,9 @@ export default async function handler(req, res) {
 
           const isInHotGroup = HOT_THTT_GROUPS.some(grp => currentInf.toLowerCase().includes(grp.toLowerCase()));
           if (isInHotGroup && isMatchHot(currentInf)) {
-            let modifiedInf = currentInf.replace(/group-title="[^"]*"/gi, 'group-title="🔥 KÊNH TÂM ĐIỂM"');
+            let modifiedInf = currentInf.replace(/group-title="[^"]*"/gi, 'group-title="🔥 TRẬN TÂM ĐIỂM"');
             hotMatchesArray.push({
-              timeSort: extractTimeString(currentInf),
+              sortKey: getSortTimestamp(currentInf),
               entry: `${modifiedInf}\n${streamUrl}`
             });
           }
@@ -313,9 +325,10 @@ export default async function handler(req, res) {
               normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
               
               if (isXoicheMatchHot) {
-                let infLine = `#EXTINF:-1 group-title="🔥 KÊNH TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 TRẬN HOT: ${timeStr}${data.teams} (BLV ${blv})`;
+                // Giữ nguyên định dạng gốc sạch sẽ, không chèn chữ thừa hay số thứ tự
+                let infLine = `#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})`;
                 hotMatchesArray.push({
-                  timeSort: data.timeDate || "00:00",
+                  sortKey: getSortTimestamp(timeStr),
                   entry: `${infLine}\n${vlcOpt}\n${streamUrl}`
                 });
               }
@@ -324,9 +337,9 @@ export default async function handler(req, res) {
             normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
             
             if (isXoicheMatchHot) {
-              let infLine = `#EXTINF:-1 group-title="🔥 KÊNH TÂM ĐIỂM" tvg-logo="${data.logo}", 🔥 TRẬN HOT: ${timeStr}${data.teams}`;
+              let infLine = `#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", ${timeStr}${data.teams}`;
               hotMatchesArray.push({
-                timeSort: data.timeDate || "00:00",
+                sortKey: getSortTimestamp(timeStr),
                 entry: `${infLine}\n${vlcOpt}\n${data.fallbackUrl}`
               });
             }
@@ -337,21 +350,12 @@ export default async function handler(req, res) {
       }
     }
 
-    // Sắp xếp các trận hot theo thời gian từ sớm đến muộn
-    hotMatchesArray.sort((a, b) => a.timeSort.localeCompare(b.timeSort));
-
-    // Đánh số các kênh ảo: 🔥 KÊNH 01, 🔥 KÊNH 02,... an toàn tuyệt đối
-    const virtualHotChannels = hotMatchesArray.map((item, index) => {
-      const channelNum = String(index + 1).padStart(2, '0');
-      if (!item.entry) return "";
-      return item.entry.replace(
-        /#EXTINF:-1\s+group-title="[^"]*"\s+tvg-logo="([^"]*)",\s*(.*)/,
-        `#EXTINF:-1 group-title="🔥 KÊNH TÂM ĐIỂM" tvg-logo="$1", 🔥 KÊNH ${channelNum}: $2`
-      );
-    }).filter(Boolean);
+    // Sắp xếp các trận hot theo đúng Ngày & Giờ (Chronological order)
+    hotMatchesArray.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    const hotMatchesList = hotMatchesArray.map(item => item.entry);
 
     const combined = "#EXTM3U\n\n" + 
-      (virtualHotChannels.length > 0 ? virtualHotChannels.join("\n\n") + "\n\n" : "") + 
+      (hotMatchesList.length > 0 ? hotMatchesList.join("\n\n") + "\n\n" : "") + 
       normalChannelsList.join("\n\n");
 
     res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=1800');
