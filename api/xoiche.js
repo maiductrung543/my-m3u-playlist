@@ -4,8 +4,6 @@ export default async function handler(req, res) {
   res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const url1 = "https://tinyurl.com/vietxiaomi";
-  const url2 = "https://thtt.pages.dev/tttt.m3u";
   const xoicheDomains = ["https://xoiche.tv", "https://xoiche1.live", "https://xoiche.live"];
 
   // Hàm fetch chống treo API có giới hạn Timeout
@@ -43,18 +41,9 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Fetch song song dữ liệu từ Vietxiaomi & THTT
-    const [res1, res2] = await Promise.all([
-      fetchWithTimeout(url1, {}, 5000),
-      fetchWithTimeout(url2, {}, 5000)
-    ]);
-
-    const text1 = (res1 && res1.ok) ? await res1.text().catch(() => "") : "";
-    const text2 = (res2 && res2.ok) ? await res2.text().catch(() => "") : "";
-
     let xoichePlaylist = "";
 
-    // 3. Xử lý cào dữ liệu Xôi Chè
+    // 2. Xử lý cào dữ liệu Xôi Chè
     if (xoicheRes && xoicheRes.ok) {
       const html = await xoicheRes.text().catch(() => "");
 
@@ -245,8 +234,6 @@ export default async function handler(req, res) {
           if (data.blvs.length > 0) {
             data.blvs.forEach(blv => {
               const streamUrl = blvStreamMap[blv] || data.fallbackUrl;
-              
-              // Tạo Khóa Duy Nhất (Tên Trận + Link Stream)
               const uniqueKey = `${key}_${streamUrl}`;
               if (!seenKeys.has(uniqueKey)) {
                 seenKeys.add(uniqueKey);
@@ -268,18 +255,14 @@ export default async function handler(req, res) {
       }
     }
 
-    // 4. Ghép toàn bộ nội dung M3U
     const finalPlaylist = [
       "#EXTM3U",
-      xoichePlaylist.trim(),
-      text1.trim(),
-      text2.trim()
+      xoichePlaylist.trim()
     ].filter(Boolean).join("\n\n");
 
     res.status(200).send(finalPlaylist);
 
   } catch (err) {
-    // Trả về playlist dự phòng nếu toàn bộ hệ thống gặp sự cố
     res.status(200).send("#EXTM3U\n#EXTINF:-1 group-title=\"Xôi Chè\", ⚠️ Lỗi Hệ Thống Tạm Thời\nhttps://live.khoga.space/live/livehub2/index.m3u8");
   }
 }
