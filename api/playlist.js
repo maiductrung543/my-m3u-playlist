@@ -2,12 +2,12 @@ export default async function handler(req, res) {
   const url1 = "https://tinyurl.com/vietxiaomi";
   const url2 = "https://thtt.pages.dev/tttt.m3u";
 
-  // Hàm fetch có Timeout 5 giây chống treo API
   async function fetchWithTimeout(resource, options = {}, timeoutMs = 5000) {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(resource, {
+        redirect: 'follow',
         ...options,
         signal: controller.signal
       });
@@ -23,9 +23,9 @@ export default async function handler(req, res) {
     const results = await Promise.allSettled([
       fetchWithTimeout(url1, {}, 5000),
       fetchWithTimeout(url2, {}, 5000),
-      fetchWithTimeout("https://xoiche.live", {
+      fetchWithTimeout("https://xoiche.tv", {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
       }, 5000)
     ]);
@@ -39,7 +39,10 @@ export default async function handler(req, res) {
 
     const matchGroupsMap = new Map();
     const normalChannelsList = [];
-    const seenUrls = new Set(); // Dùng để lọc trùng lặp luồng stream
+    
+    // Set lọc trùng riêng biệt dùng key kết hợp (Tên trận + Link stream)
+    const seenNormalKeys = new Set();
+    const seenHotKeys = new Set();
 
     const HOT_LEAGUES_AND_TEAMS = [
       "PREMIER LEAGUE", "NGOẠI HẠNG ANH", "CHAMPIONS LEAGUE", "CÚP C1", 
@@ -61,7 +64,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // Hàm lấy chuỗi sortKey để sắp xếp theo thời gian (YYYY-MM-DD HH:mm)
     function getSortTimestamp(text) {
       const matchFull = text.match(/\[(\d{1,2}):(\d{2})\s*-\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\]/) ||
                         text.match(/(\d{1,2}):(\d{2})\s+(\d{1,2})\/(\d{1,2})/);
@@ -74,7 +76,7 @@ export default async function handler(req, res) {
         const minute = mm.padStart(2, '0');
         return `${year}-${month}-${day} ${hour}:${minute}`;
       }
-      return '2026-10-17 00:00';
+      return '2026-10-18 00:00';
     }
 
     function getMatchGroupKey(t1, t2, timeStr) {
@@ -85,7 +87,7 @@ export default async function handler(req, res) {
       return `${sortedTeams}_${timeKey}`;
     }
 
-    // NGUỒN 1 (Vietxiaomi)
+    // 1. NGUỒN VIETXIAOMI
     if (text1) {
       const lines = text1.split('\n');
       let currentInf = "";
@@ -94,8 +96,8 @@ export default async function handler(req, res) {
         if (line.startsWith('#EXTINF:')) {
           currentInf = line;
         } else if (line && !line.startsWith('#') && currentInf) {
-          if (!seenUrls.has(line)) {
-            seenUrls.add(line);
+          if (!seenNormalKeys.has(line)) {
+            seenNormalKeys.add(line);
             normalChannelsList.push(`${currentInf}\n${line}`);
           }
           currentInf = "";
@@ -103,7 +105,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // NGUỒN 2 (THTT)
+    // 2. NGUỒN THTT
     if (text2) {
       const lines = text2.split('\n');
       let currentInf = "";
@@ -114,36 +116,36 @@ export default async function handler(req, res) {
         } else if (line && !line.startsWith('#') && currentInf) {
           let streamUrl = line;
           
-          if (!seenUrls.has(streamUrl)) {
-            seenUrls.add(streamUrl);
+          if (!seenNormalKeys.has(streamUrl)) {
+            seenNormalKeys.add(streamUrl);
             normalChannelsList.push(`${currentInf}\n${streamUrl}`);
+          }
 
-            const isInHotGroup = HOT_THTT_GROUPS.some(grp => currentInf.toLowerCase().includes(grp.toLowerCase()));
-            if (isInHotGroup && isMatchHot(currentInf)) {
-              const timeMatch = currentInf.match(/\[(\d{1,2}:\d{2})/);
-              const timeStr = timeMatch ? timeMatch[1] : "";
-              
-              let matchPart = currentInf.replace(/#EXTINF:[^,]+,\s*/, '').replace(/\[.*?\]\s*/, '').replace(/\s*\(.*?\)\s*$/, '').trim();
-              let parts = matchPart.split(/\s+vs\s+|\s+VS\s+/i);
-              let groupKey = parts.length >= 2 ? getMatchGroupKey(parts[0], parts[1], timeStr) : matchPart.toLowerCase() + "_" + timeStr;
+          const isInHotGroup = HOT_THTT_GROUPS.some(grp => currentInf.toLowerCase().includes(grp.toLowerCase()));
+          if (isInHotGroup && isMatchHot(currentInf)) {
+            const timeMatch = currentInf.match(/\[(\d{1,2}:\d{2})/);
+            const timeStr = timeMatch ? timeMatch[1] : "";
+            
+            let matchPart = currentInf.replace(/#EXTINF:[^,]+,\s*/, '').replace(/\[.*?\]\s*/, '').replace(/\s*\(.*?\)\s*$/, '').trim();
+            let parts = matchPart.split(/\s+vs\s+|\s+VS\s+/i);
+            let groupKey = parts.length >= 2 ? getMatchGroupKey(parts[0], parts[1], timeStr) : matchPart.toLowerCase() + "_" + timeStr;
 
-              let modifiedInf = currentInf.replace(/group-title="[^"]*"/gi, 'group-title="🔥 TRẬN TÂM ĐIỂM"');
-              
-              if (!matchGroupsMap.has(groupKey)) {
-                matchGroupsMap.set(groupKey, {
-                  sortKey: getSortTimestamp(currentInf),
-                  entries: new Set()
-                });
-              }
-              matchGroupsMap.get(groupKey).entries.add(`${modifiedInf}\n${streamUrl}`);
+            let modifiedInf = currentInf.replace(/group-title="[^"]*"/gi, 'group-title="🔥 TRẬN TÂM ĐIỂM"');
+            
+            if (!matchGroupsMap.has(groupKey)) {
+              matchGroupsMap.set(groupKey, {
+                sortKey: getSortTimestamp(currentInf),
+                entries: new Set()
+              });
             }
+            matchGroupsMap.get(groupKey).entries.add(`${modifiedInf}\n${streamUrl}`);
           }
           currentInf = "";
         }
       }
     }
 
-    // NGUỒN XOICHE.LIVE
+    // 3. NGUỒN XOICHE
     if (xoicheRes && xoicheRes.ok) {
       const html = await xoicheRes.text().catch(() => "");
       
@@ -308,13 +310,13 @@ export default async function handler(req, res) {
 
           let timeDateDisplay = timeStr;
           if (timeStr && dateStr) timeDateDisplay = `${timeStr} ${dateStr}`;
-          else if (timeStr && !dateStr) timeDateDisplay = `${timeStr} 17/10`;
+          else if (timeStr && !dateStr) timeDateDisplay = `${timeStr} 18/10`;
           else if (!timeStr && dateStr) timeDateDisplay = `00:00 ${dateStr}`;
-          else timeDateDisplay = "00:00 17/10";
+          else timeDateDisplay = "00:00 18/10";
 
           const formattedTeams = `${team1} vs ${team2}`;
           const dictKey = `${formattedTeams}_${timeDateDisplay}`;
-          const fullUrl = href.startsWith('http') ? href : "https://xoiche.live" + (href.startsWith('/') ? '' : '/') + href;
+          const fullUrl = href.startsWith('http') ? href : "https://xoiche.tv" + (href.startsWith('/') ? '' : '/') + href;
 
           let matchLogo = leagueLogoMap[detectedLeague] || defaultSportLogo;
 
@@ -348,12 +350,17 @@ export default async function handler(req, res) {
             data.blvs.forEach(blv => {
               const streamUrl = blvStreamMap[blv] || data.fallbackUrl;
               
-              if (!seenUrls.has(streamUrl)) {
-                seenUrls.add(streamUrl);
+              // Tạo Key duy nhất kết hợp Tên trận + Stream URL để chống lặp nhưng không bị bỏ sót trận
+              const uniqueNormalKey = `${key}_${streamUrl}_normal`;
+              const uniqueHotKey = `${key}_${streamUrl}_hot`;
+
+              if (!seenNormalKeys.has(uniqueNormalKey)) {
+                seenNormalKeys.add(uniqueNormalKey);
                 normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${data.timeDate} ⚽ ${data.teams} (${blv})\n${vlcOpt}\n${streamUrl}`);
               }
 
-              if (isXoicheMatchHot) {
+              if (isXoicheMatchHot && !seenHotKeys.has(uniqueHotKey)) {
+                seenHotKeys.add(uniqueHotKey);
                 let infLine = `#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", ${data.timeDate} ⚽ ${data.teams} (${blv})`;
                 let entryText = `${infLine}\n${vlcOpt}\n${streamUrl}`;
 
@@ -367,12 +374,16 @@ export default async function handler(req, res) {
               }
             });
           } else {
-            if (!seenUrls.has(data.fallbackUrl)) {
-              seenUrls.add(data.fallbackUrl);
+            const uniqueNormalKey = `${key}_${data.fallbackUrl}_normal`;
+            const uniqueHotKey = `${key}_${data.fallbackUrl}_hot`;
+
+            if (!seenNormalKeys.has(uniqueNormalKey)) {
+              seenNormalKeys.add(uniqueNormalKey);
               normalXoicheList.push(`#EXTINF:-1 group-title="Xôi Chè" tvg-logo="${data.logo}", ${data.timeDate} ⚽ ${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
             }
 
-            if (isXoicheMatchHot) {
+            if (isXoicheMatchHot && !seenHotKeys.has(uniqueHotKey)) {
+              seenHotKeys.add(uniqueHotKey);
               let infLine = `#EXTINF:-1 group-title="🔥 TRẬN TÂM ĐIỂM" tvg-logo="${data.logo}", ${data.timeDate} ⚽ ${data.teams}`;
               let entryText = `${infLine}\n${vlcOpt}\n${data.fallbackUrl}`;
 
@@ -387,12 +398,10 @@ export default async function handler(req, res) {
           }
         }
 
-        // Các kênh xôi chè đẩy xuống dưới nhóm thường
         normalChannelsList.push(...normalXoicheList);
       }
     }
 
-    // Sắp xếp các cụm trận tâm điểm theo đúng trình tự thời gian toàn cục
     const sortedGroups = Array.from(matchGroupsMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
     
     const hotMatchesList = [];
