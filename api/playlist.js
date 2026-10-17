@@ -49,7 +49,20 @@ export default async function handler(req, res) {
         "Xôi Xoài": "https://live.khoga.space/live/livehub3/index.m3u8"
       };
 
+      // Từ điển logo chuẩn cho các giải đấu lớn (dạng PNG sắc nét tương thích mọi app IPTV)
+      const leagueLogoMap = {
+        "PREMIER LEAGUE": "https://assets.laliga.com/assets/logos/laliga-v/laliga-v-300x300.png", // Thay bằng link logo chuẩn nếu muốn
+        "NGOẠI HẠNG ANH": "https://cdn.iconscout.com/icon/free/png-512/free-premier-league-logo-icon-download-in-svg-png-gif-file-formats--football-sports-club-brand-vol-7-pack-logos-icons-3384874.png?f=webp&w=256",
+        "LA LIGA": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/LaLiga_logo_2023.svg/256px-LaLiga_logo_2023.svg.png",
+        "SERIE A": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Serie_A_logo_%282019%29.svg/256px-Serie_A_logo_%282019%29.svg.png",
+        "BUNDESLIGA": "https://upload.wikimedia.org/wikipedia/en/thumb/d/df/Bundesliga_logo_%282017%29.svg/256px-Bundesliga_logo_%282017%29.svg.png",
+        "LIGUE 1": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Ligue_1_%28logo%29.svg/256px-Ligue_1_%28logo%29.svg.png",
+        "CHAMPIONS LEAGUE": "https://upload.wikimedia.org/wikipedia/en/thumb/f/f3/UEFA_Champions_League_logo_2.svg/256px-UEFA_Champions_League_logo_2.svg.png",
+        "EUROPA LEAGUE": "https://upload.wikimedia.org/wikipedia/en/thumb/5/5f/UEFA_Europa_League_logo_2021.svg/256px-UEFA_Europa_League_logo_2021.svg.png"
+      };
+
       const KNOWN_LEAGUES = [
+        "THỔ NHĨ KỲ NAM", "THỔ NHĨ KỲ", "Ý", "ANH", "TÂY BAN NHA", "PHÁP", "ĐỨC", "Ý / W",
         "ELITE", "ACL ELITE", "UEFA", "AFC", "J1 LEAGUE", "SV.LEAGUE NHẬT BẢN", "SV.LEAGUE", 
         "SULTANLAR LIGI NỮ", "SULTANLAR LIGI", "SERIE A1 Ý", "SERIE A1", 
         "AFRICA CUP OF NATIONS QUALIFICATION", "AFRICA CUP OF NATIONS QUALIFIERS", 
@@ -69,12 +82,36 @@ export default async function handler(req, res) {
         "THAI LEAGUE", "EFELER LIGI THỔ NHĨ KỲ", "EFELER LIGI"
       ];
 
-      // Lấy logo chuẩn của xoiche làm logo group
-      let mainSiteLogo = "https://xoiche.live/favicon.ico";
+      function ultraClean(str) {
+        if (!str) return "";
+        return str
+          .replace(/&#39;/g, "'").replace(/&amp;/g, "&")
+          .replace(/[\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, ' ')
+          .replace(/^[^a-zA-Z0-9À-ỹ]+/g, '')
+          .replace(/[^a-zA-Z0-9À-ỹ]+$/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function extractCleanTeam(teamStr) {
+        if (!teamStr) return "";
+        let clean = ultraClean(teamStr);
+        clean = clean.replace(/^[W|M|Nam|Nữ]\s+/i, '');
+        clean = clean.replace(/^\d{1,2}[:\-]?\d{0,2}\s*/g, '');
+        
+        const sortedLeagues = KNOWN_LEAGUES.sort((x, y) => y.length - x.length);
+        for (let lg of sortedLeagues) {
+          let regexLg = new RegExp(`^${lg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[/\\-]?\\s*`, "ig");
+          clean = clean.replace(regexLg, '');
+        }
+        return ultraClean(clean);
+      }
+
+      let defaultLogo = "https://xoiche.live/favicon.ico";
       const logoMatch = html.match(/<img[^>]+src=["']([^"']+\.(png|ico|jpg|webp))["'][^>]*>/i);
       if (logoMatch && logoMatch[1]) {
         let src = logoMatch[1];
-        mainSiteLogo = src.startsWith('http') ? src : "https://xoiche.live" + (src.startsWith('/') ? '' : '/') + src;
+        defaultLogo = src.startsWith('http') ? src : "https://xoiche.live" + (src.startsWith('/') ? '' : '/') + src;
       }
 
       const linkRegex = /<a\s+[^>]*href=["']([^"']*(?:\/tran-dau\/|\/truc-tiep\/|\/live\/|\/xem\/)[^"']*)["'][^>]*>(.*?)<\/a>/gis;
@@ -90,8 +127,18 @@ export default async function handler(req, res) {
         const isMatch = /VS|vs|Trực tiếp|Sắp diễn ra|\b\d{1,3}'|\b\d{1,2}\s*[:\-]\s*\d{1,2}\b/i.test(rawText);
         if (!isMatch) continue;
 
-        // Xóa mã HTML entities thừa như &#39;
         rawText = rawText.replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+
+        // Nhận diện giải đấu trước khi xóa nó đi
+        let detectedLeague = "";
+        const sortedLeagues = KNOWN_LEAGUES.sort((x, y) => y.length - x.length);
+        for (let lg of sortedLeagues) {
+          let regexLg = new RegExp(`\\b${lg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "ig");
+          if (regexLg.test(rawText)) {
+            detectedLeague = lg.toUpperCase();
+            break;
+          }
+        }
 
         let timeStr = "", dateStr = "";
         const timeMatch = rawText.match(/\b([0-1]?[0-9]|2[0-3]):([0-5][0-9])\b/);
@@ -107,13 +154,9 @@ export default async function handler(req, res) {
         rawText = rawText.replace(/\b202\d\b/g, ' ');
         rawText = rawText.replace(/\b\d{1,2}\s*[:\-]\s*\d{1,2}\b/g, ' VS ');
         rawText = rawText.replace(/\s+-\s+/g, ' VS ').replace(/\bvs\b/gi, ' VS ');
-        
-        // Xóa các ký tự phút trận đấu kiểu như "82'" hoặc số phút linh tinh
         rawText = rawText.replace(/\b\d{1,3}'/g, ' ');
         rawText = rawText.replace(/Trực tiếp|Trực Tiếp|Đang đá|Đang live|\bLIVE\b|Sắp diễn ra/ig, ' ');
 
-        // Xóa tên các giải đấu ra khỏi chuỗi text
-        const sortedLeagues = KNOWN_LEAGUES.sort((x, y) => y.length - x.length);
         for (let lg of sortedLeagues) {
           let regexLg = new RegExp(`\\b${lg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "ig");
           rawText = rawText.replace(regexLg, ' ');
@@ -132,7 +175,7 @@ export default async function handler(req, res) {
           }
         }
 
-        const garbageWords = ["Nghỉ giữa hiệp", "Nghỉ giữa trận", "Đang diễn ra", "Đang đá", "Hiệp 1", "Hiệp 2", "HT", "FT", "CƯỢC", "FB88", "8Xbet", "SV368", "Nhà đài", "Tất cả", "Trận hot", "BLV"];
+        const garbageWords = ["Nghỉ giữa hiệp", "Nghỉ giữa trận", "Đang diễn ra", "Đang đá", "Hiệp 1", "Hiệp 2", "HT", "FT", "CƯỢC", "FB88", "8Xbet", "SV368", "Nhà đài", "Tất cả", "Trận hot", "BLV", "Xôi"];
         for (let g of garbageWords) {
           rawText = rawText.replace(new RegExp(`(^|\\s)${g}(\\s|$)`, "ig"), ' ');
         }
@@ -141,8 +184,8 @@ export default async function handler(req, res) {
         let parts = rawText.split('VS').map(p => p.trim()).filter(p => p.length > 0);
         if (parts.length < 2) continue;
 
-        let team1 = parts[0];
-        let team2 = parts[1];
+        let team1 = extractCleanTeam(parts[0]);
+        let team2 = extractCleanTeam(parts[1]);
         if (!team1 || !team2) continue;
 
         let timeDateDisplay = timeStr;
@@ -153,12 +196,16 @@ export default async function handler(req, res) {
         const dictKey = `${team1} VS ${team2} - ${timeDateDisplay}`;
         const fullUrl = href.startsWith('http') ? href : "https://xoiche.live" + (href.startsWith('/') ? '' : '/') + href;
 
+        // Chọn logo tương ứng với giải đấu, nếu không có thì dùng logo mặc định
+        let matchLogo = leagueLogoMap[detectedLeague] || defaultLogo;
+
         if (!matchDict[dictKey]) {
           matchDict[dictKey] = {
             timeDate: timeDateDisplay,
             teams: formattedTeams,
             blvs: foundBlvs,
-            fallbackUrl: fullUrl
+            fallbackUrl: fullUrl,
+            logo: matchLogo
           };
         } else {
           for (let b of foundBlvs) {
@@ -169,9 +216,7 @@ export default async function handler(req, res) {
 
       const results = [];
       const vlcOpt = "#EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-      
-      // Gộp chung tất cả vào 1 group duy nhất tên là "Xôi Chè"
-      const groupTitle = "Xôi Chè";
+      const groupTitle = "Xôi Chè"; // Giữ chung một group duy nhất
 
       for (let key in matchDict) {
         const data = matchDict[key];
@@ -180,10 +225,10 @@ export default async function handler(req, res) {
         if (data.blvs.length > 0) {
           data.blvs.forEach(blv => {
             const streamUrl = blvStreamMap[blv] || data.fallbackUrl;
-            results.push(`#EXTINF:-1 group-title="${groupTitle}" tvg-logo="${mainSiteLogo}", ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
+            results.push(`#EXTINF:-1 group-title="${groupTitle}" tvg-logo="${data.logo}", ${timeStr}${data.teams} (BLV ${blv})\n${vlcOpt}\n${streamUrl}`);
           });
         } else {
-          results.push(`#EXTINF:-1 group-title="${groupTitle}" tvg-logo="${mainSiteLogo}", ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
+          results.push(`#EXTINF:-1 group-title="${groupTitle}" tvg-logo="${data.logo}", ${timeStr}${data.teams}\n${vlcOpt}\n${data.fallbackUrl}`);
         }
       }
 
