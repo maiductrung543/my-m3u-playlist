@@ -2,8 +2,8 @@ export default async function handler(req, res) {
   const url1 = "https://tinyurl.com/vietxiaomi";
   const url2 = "https://thtt.pages.dev/tttt.m3u";
 
-  // Danh sách từ khóa các nhóm/kênh cần ẩn (không dấu, viết liền)
-  const blockedKeywords = ["chuoichien", "saoke", "xoilac", "sutbong", "phalang"];
+  // Danh sách từ khóa các nhóm/kênh cần ẩn (đã bỏ Phá Làng)
+  const blockedKeywords = ["chuoichien", "saoke", "xoilac", "sutbong"];
 
   // Hàm chuẩn hóa: bỏ dấu tiếng Việt, viết thường, xóa khoảng trắng và ký tự đặc biệt
   function normalizeStr(str) {
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
         }
       }
 
-// Giữ lại các dòng hợp lệ khác (trừ thẻ #EXTM3U thừa)
+      // Giữ lại các dòng hợp lệ khác (trừ thẻ #EXTM3U thừa)
       if (line !== '' && !line.startsWith('#EXTM3U')) {
         filteredLines.push(lines[i]);
       }
