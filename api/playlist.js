@@ -2,8 +2,17 @@ export default async function handler(req, res) {
   const url1 = "https://tinyurl.com/vietxiaomi";
   const url2 = "https://thtt.pages.dev/tttt.m3u";
 
-  // Danh sách từ khóa các nhóm/kênh cần ẩn (không phân biệt hoa thường)
-  const blockedKeywords = ["chuoichientv", "saoketv", "xoilacztv", "sutbongtv"];
+  // Danh sách từ khóa các nhóm/kênh cần ẩn (không dấu, viết liền)
+  const blockedKeywords = ["chuoichien", "saoke", "xoilac", "sutbong", "phalang"];
+
+  // Hàm chuẩn hóa: bỏ dấu tiếng Việt, viết thường, xóa khoảng trắng và ký tự đặc biệt
+  function normalizeStr(str) {
+    if (!str) return "";
+    return str.normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, '');
+  }
 
   try {
     const [res1, res2] = await Promise.all([
@@ -29,7 +38,7 @@ export default async function handler(req, res) {
       updateTimeStr = `Cập Nhật lúc ${timePart}`;
     }
 
-    // 2. Xử lý và lọc bỏ các nhóm kênh bị chặn
+    // 2. Xử lý và lọc bỏ các nhóm kênh bị chặn bằng bộ lọc chuẩn hóa
     const lines = text2.split('\n');
     const filteredLines = [];
     let i = 0;
@@ -62,12 +71,12 @@ export default async function handler(req, res) {
           urlLine = lines[nextIndex].trim();
         }
 
-        // Kiểm tra xem tên dòng EXTINF hoặc URL có chứa từ khóa bị chặn không
-        const lowerExtinf = extinfLine.toLowerCase();
-        const lowerUrl = urlLine.toLowerCase();
+        // Chuẩn hóa dòng EXTINF và URL để so khớp bất chấp dấu, khoảng trắng, viết hoa/thường
+        const normalizedExtinf = normalizeStr(extinfLine);
+        const normalizedUrl = normalizeStr(urlLine);
         
         const isBlocked = blockedKeywords.some(keyword => 
-          lowerExtinf.includes(keyword) || lowerUrl.includes(keyword)
+          normalizedExtinf.includes(keyword) || normalizedUrl.includes(keyword)
         );
 
         if (isBlocked) {
@@ -83,7 +92,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // Giữ lại các dòng hợp lệ khác (trừ thẻ #EXTM3U thừa)
+// Giữ lại các dòng hợp lệ khác (trừ thẻ #EXTM3U thừa)
       if (line !== '' && !line.startsWith('#EXTM3U')) {
         filteredLines.push(lines[i]);
       }
