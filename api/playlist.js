@@ -2,6 +2,9 @@ export default async function handler(req, res) {
   const url1 = "https://tinyurl.com/vietxiaomi";
   const url2 = "https://thtt.pages.dev/tttt.m3u";
 
+  // Danh sách từ khóa các nhóm/kênh cần ẩn (không phân biệt hoa thường)
+  const blockedKeywords = ["chuoichientv", "saoketv", "xoilacztv", "sutbongtv"];
+
   try {
     const [res1, res2] = await Promise.all([
       fetch(url1),
@@ -26,7 +29,7 @@ export default async function handler(req, res) {
       updateTimeStr = `Cập Nhật lúc ${timePart}`;
     }
 
-    // 2. Xử lý và lọc thông minh M3U của text2
+    // 2. Xử lý và lọc bỏ các nhóm kênh bị chặn
     const lines = text2.split('\n');
     const filteredLines = [];
     let i = 0;
@@ -59,20 +62,21 @@ export default async function handler(req, res) {
           urlLine = lines[nextIndex].trim();
         }
 
-        // --- ĐIỀU KIỆN LỌC BỎ KÊNH LỖI / NO-SIGNAL ---
-        const isDeadOrNoSignal = 
-          urlLine.includes('/no-signal/') || 
-          urlLine.includes('freem3u.xyz/static/no-signal/low.m3u8') ||
-          urlLine === '' ||
-          urlLine.toLowerCase().includes('error');
+        // Kiểm tra xem tên dòng EXTINF hoặc URL có chứa từ khóa bị chặn không
+        const lowerExtinf = extinfLine.toLowerCase();
+        const lowerUrl = urlLine.toLowerCase();
+        
+        const isBlocked = blockedKeywords.some(keyword => 
+          lowerExtinf.includes(keyword) || lowerUrl.includes(keyword)
+        );
 
-        if (isDeadOrNoSignal) {
+        if (isBlocked) {
           removedCount++;
           // Nhảy cóc qua cả cụm kênh này (bỏ qua cả #EXTINF và URL của nó)
           i = nextIndex + 1;
           continue;
         } else {
-          // Giữ lại kênh sống
+          // Giữ lại kênh bình thường
           filteredLines.push(extinfLine);
           i++;
           continue;
@@ -88,9 +92,9 @@ export default async function handler(req, res) {
 
     cleanText2 = filteredLines.join('\n').trim();
 
-    // 3. Tạo kênh hiển thị trạng thái kèm số lượng kênh đã lọc
+    // 3. Tạo kênh hiển thị trạng thái kèm số lượng kênh đã ẩn
     const statusText = removedCount > 0 
-      ? `⏱️ Trạng thái: Hoạt động bình thường (Đã lọc ${removedCount} kênh lỗi)` 
+      ? `⏱️ Trạng thái: Hoạt động bình thường (Đã ẩn ${removedCount} kênh)` 
       : `⏱️ Trạng thái: Hoạt động bình thường`;
 
     const updateChannel = `#EXTINF:-1 group-title="${updateTimeStr}",${statusText}\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm`;
