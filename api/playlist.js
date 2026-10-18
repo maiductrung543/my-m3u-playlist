@@ -13,7 +13,8 @@ export default async function handler(req, res) {
 
     const combined = text1.trim() + "\n\n" + text2.trim();
 
-    // Thiết lập Header cho M3U và CORS
+    // Lưu cache 15 phút (900 giây) - Tối ưu tốc độ và chống nghẽn
+    res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=1800');
     res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(200).send(combined);
