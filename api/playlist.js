@@ -1,8 +1,8 @@
 
 export default async function handler(req, res) {
   const url1 = "https://tinyurl.com/vietxiaomi";      // Link 1: Xiaomi
-  const url2 = "https://thtt.pages.dev/tttt.m3u";          // Link 2: THTT (Nguồn lấy thời gian cập nhật)
-  const url3 = "https://tinyurl.com/xoiche1";             // Link 3: Xôi Chè (Code 2)
+  const url2 = "https://tinyurl.com/xoiche1";          // Link 2: THTT (Nguồn lấy thời gian cập nhật)
+  const url3 = "https://thtt.pages.dev/tttt.m3u";             // Link 3: Xôi Chè (Code 2)
 
   // Danh sách từ khóa các nhóm/kênh cần ẩn
   const blockedKeywords = ["chuoichien", "saoke", "xoilac", "sutbong"];
