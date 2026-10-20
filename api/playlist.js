@@ -1,7 +1,8 @@
+
 export default async function handler(req, res) {
-  const url1 = "https://tinyurl.com/vietxiaomi";
-  const url2 = "https://tinyurl.com/xoiche1"; // Link mới thêm vào
-  const url3 = "https://thtt.pages.dev/tttt.m3u"; // Link cũ chuyển thành link 3
+  const url1 = "https://tinyurl.com/vietxiaomi";      // Link 1: Xiaomi
+  const url2 = "https://thtt.pages.dev/tttt.m3u";          // Link 2: THTT (Nguồn lấy thời gian cập nhật)
+  const url3 = "https://tinyurl.com/xoiche1";             // Link 3: Xôi Chè (Code 2)
 
   // Danh sách từ khóa các nhóm/kênh cần ẩn
   const blockedKeywords = ["chuoichien", "saoke", "xoilac", "sutbong"];
@@ -17,6 +18,7 @@ export default async function handler(req, res) {
 
   // Hàm xử lý, lọc kênh chung cho các nguồn
   function processM3UText(text) {
+    if (!text) return { cleaned: "", removedCount: 0 };
     const lines = text.split('\n');
     const filteredLines = [];
     let i = 0;
@@ -79,31 +81,37 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [res1, res2, res3] = await Promise.all([
-      fetch(url1),
-      fetch(url2),
-      fetch(url3)
+    // Hàm fetch an toàn: Nếu 1 link lỗi/timeout, trả về chuỗi rỗng thay vì làm sập toàn bộ
+    const fetchSafe = async (url) => {
+      try {
+        const r = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        });
+        if (!r.ok) return "";
+        return await r.text();
+      } catch (e) {
+        return "";
+      }
+    };
+
+    const [text1, text2, text3] = await Promise.all([
+      fetchSafe(url1),
+      fetchSafe(url2),
+      fetchSafe(url3)
     ]);
 
-    if (!res1.ok || !res2.ok || !res3.ok) {
-      throw new Error(`Không thể tải dữ liệu từ nguồn (Status: ${res1.status}, ${res2.status}, ${res3.status})`);
-    }
-
-    const text1 = await res1.text();
-    const text2 = await res2.text();
-    const text3 = await res3.text();
-
-    // 1. Trích xuất chuỗi thời gian gốc từ link 3 (thtt)
-    const match = text3.match(/group-title="([^"]*)"/);
+    // 1. Trích xuất chuỗi thời gian gốc từ Link 2 (THTT)
     let updateTimeStr = "Cập Nhật";
-
-    if (match) {
-      const originalTitle = match[1];
-      const timePart = originalTitle.replace(/^Updated\s*/i, '');
-      updateTimeStr = `Cập Nhật lúc ${timePart}`;
+    if (text2) {
+      const match = text2.match(/group-title="([^"]*)"/);
+      if (match) {
+        const originalTitle = match[1];
+        const timePart = originalTitle.replace(/^Updated\s*/i, '');
+        updateTimeStr = `Cập Nhật lúc ${timePart}`;
+      }
     }
 
-    // 2. Lọc bỏ các nhóm kênh bị chặn trên cả 3 nguồn
+    // 2. Lọc bỏ các nhóm kênh bị chặn trên các nguồn
     const result1 = processM3UText(text1);
     const result2 = processM3UText(text2);
     const result3 = processM3UText(text3);
@@ -117,7 +125,7 @@ export default async function handler(req, res) {
 
     const updateChannel = `#EXTINF:-1 group-title="${updateTimeStr}",${statusText}\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm`;
 
-    // 4. Ghép nối toàn bộ danh sách theo đúng thứ tự (Link 1 -> Link mới -> Link 3)
+    // 4. Ghép nối toàn bộ danh sách theo đúng thứ tự (Link 1 -> Link 2 -> Link 3)
     let combined = `#EXTM3U\n`;
     if (result1.cleaned) combined += result1.cleaned;
     if (result2.cleaned) combined += `\n\n` + result2.cleaned;
