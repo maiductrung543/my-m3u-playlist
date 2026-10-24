@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - Final Pro Max (Fix lặp giờ & Trạng thái)
+//  M3U Aggregator - Ultimate Fix (Xóa rác & Trạng thái)
 // ============================================================
 
 const SOURCES = {
@@ -70,7 +70,7 @@ function isSameTeam(team1, team2) {
   if (team1.includes(team2) || team2.includes(team1)) return true;
   const dist = levenshtein(team1, team2);
   const maxLen = Math.max(team1.length, team2.length);
-  return (dist / maxLen) <= 0.35; // Nới lỏng lên 35% để bắt các tên viết tắt tốt hơn
+  return (dist / maxLen) <= 0.35; 
 }
 
 const ALIASES = {
@@ -83,14 +83,16 @@ const ALIASES = {
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna",
-  "santos fc sp": "santos", "santos sp": "santos"
+  "santos fc sp": "santos", "santos sp": "santos", "cs2 pgl masters": "esports", "f1": "f1"
 };
 
 function cleanAndAliasTeam(rawName) {
   let name = standardizeName(rawName);
   
   name = name.replace(/\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g, ' ');
-  name = name.replace(/\b(fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g, '')
+  // Xóa các đuôi rác như hls, flv, 333...
+  name = name.replace(/\b(hls|flv|hd|sd|fhd)\b/g, ' '); 
+  name = name.replace(/\b(fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g, ' ')
              .replace(/\s+/g, ' ').trim();
 
   Object.keys(ALIASES).forEach(k => {
@@ -101,50 +103,71 @@ function cleanAndAliasTeam(rawName) {
   return name;
 }
 
+/** Hàm tách thời gian (Xử lý cả trường hợp thiếu dấu hai chấm) */
+function extractDateTime(title) {
+  let h, m, d, month;
+  let found = false;
+
+  // Thử tìm định dạng có dấu hai chấm (VD: 20:00 24/10)
+  let match = title.match(/(\d{1,2})[h:](\d{2})[\s\-]*(\d{1,2})[\/\-](\d{1,2})/i);
+  if (match) {
+    h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
+    found = true;
+  } else {
+    // Thử tìm định dạng không có dấu hai chấm (VD: 2153 24/10 -> 21:53 24/10)
+    match = title.match(/\b(\d{2})(\d{2})[\s\-]+(\d{1,2})[\/\-](\d{1,2})/i);
+    if (match) {
+      h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
+      found = true;
+    }
+  }
+
+  if (!found) return null;
+  
+  // Bắt lỗi giờ phi lý
+  if (h > 23 || m > 59 || d > 31 || month > 12) return null;
+
+  const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+  const matchDate = new Date(now.getFullYear(), month - 1, d, h, m);
+  if (matchDate.getMonth() < now.getMonth() - 6) matchDate.setFullYear(now.getFullYear() + 1);
+
+  return {
+    timeStr: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${d}/${month}`,
+    timeMs: matchDate.getTime()
+  };
+}
+
 /** 
- * Hàm bóc tách cấu trúc trận đấu (Xóa sạch mọi ngày giờ thừa)
+ * Hàm bóc tách cấu trúc trận đấu
  */
 function parseMatchTitle(title) {
   if (!title) return null;
 
-  let timeStr = "";
-  let timeMs = 0;
-  const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-  
-  const timeMatch = title.match(/(\d{1,2})[h:](\d{2})\s*(?:-|)\s*(\d{1,2})[\/\-](\d{1,2})/i) || 
-                    title.match(/(\d{1,2})[\/\-](\d{1,2})\s*(?:-|)\s*(\d{1,2})[h:](\d{2})/i);
-  
-  if (timeMatch) {
-    let h, m, d, month;
-    if (timeMatch[0].indexOf(':') < timeMatch[0].indexOf('/') || timeMatch[0].indexOf(':') < timeMatch[0].indexOf('-')) {
-      h = parseInt(timeMatch[1]); m = parseInt(timeMatch[2]); d = parseInt(timeMatch[3]); month = parseInt(timeMatch[4]);
-    } else {
-      d = parseInt(timeMatch[1]); month = parseInt(timeMatch[2]); h = parseInt(timeMatch[3]); m = parseInt(timeMatch[4]);
-    }
-    timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${d}/${month}`;
-    const matchDate = new Date(now.getFullYear(), month - 1, d, h, m);
-    if (matchDate.getMonth() < now.getMonth() - 6) matchDate.setFullYear(now.getFullYear() + 1);
-    timeMs = matchDate.getTime();
+  const timeInfo = extractDateTime(title);
+  let timeStr = timeInfo ? timeInfo.timeStr : "Sắp tới";
+  let timeMs = timeInfo ? timeInfo.timeMs : (new Date().getTime() + 24 * 3600 * 1000);
 
-    if ((now.getTime() - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) return null; 
-  } else {
-    timeMs = now.getTime() + (1000 * 60 * 60 * 24); 
-    timeStr = "Sắp tới";
+  // Kiểm tra hạn sử dụng (Quá EXPIRE_HOURS thì trả về null -> Xóa)
+  if (timeInfo) {
+    const nowMs = new Date().getTime();
+    if ((nowMs - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
+      return { isExpired: true };
+    }
   }
 
-  // LÀM SẠCH CHUỖI TRIỆT ĐỂ
+  // Làm sạch chuỗi
   let cleanTitle = title
-    .replace(/\[.*?\]/g, ' ') // Xóa [ngoặc vuông]
-    .replace(/\(.*?\)/g, ' ') // Xóa (ngoặc tròn)
-    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // Xóa Emoji
-    .replace(/\b\d{1,2}[h:]\d{2}\b/gi, ' ') // XÓA MỌI CỤM GIỜ (VD: 20:30, 20h30)
-    .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ') // XÓA MỌI CỤM NGÀY (VD: 25/10, 24-10)
-    .replace(/\|.*/g, ' ') // Xóa phần sau dấu |
-    .replace(/\s+/g, ' ') // Gộp khoảng trắng
+    .replace(/\[.*?\]/g, ' ') 
+    .replace(/\(.*?\)/g, ' ') 
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') 
+    .replace(/\b\d{1,2}[h:]?\d{2}\b/gi, ' ') // Xóa 20:00, 2000
+    .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ') // Xóa 24/10
+    .replace(/\|.*/g, ' ') 
+    .replace(/\s+/g, ' ') 
     .trim();
 
   const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
-  if (!vsMatch) return null;
+  if (!vsMatch) return null; // Không phải trận đấu
 
   let teamA = vsMatch[1].trim();
   let teamB = vsMatch[2].trim();
@@ -205,9 +228,23 @@ function processM3UText(text) {
         
         const matchData = parseMatchTitle(title);
 
-        if (matchData) {
+        if (matchData && matchData.isExpired) {
+           // Quá hạn 2 tiếng -> Bỏ qua hoàn toàn, không thêm vào bất kỳ mảng nào
+           i = urlIdx + 1;
+           continue;
+        } else if (matchData) {
           matches.push({ extinf: line, url: url, title: title, matchData: matchData });
         } else {
+          // Không phải trận đấu -> Kiểm tra xem có ngày giờ quá hạn không
+          const timeInfo = extractDateTime(title);
+          if (timeInfo) {
+             const nowMs = new Date().getTime();
+             if ((nowMs - timeInfo.timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
+                // Kênh lẻ có ngày giờ quá hạn -> Xóa luôn
+                i = urlIdx + 1;
+                continue;
+             }
+          }
           others.push({ extinf: line, url: url, title: title, originalGroup: originalGroup });
         }
       }
@@ -234,10 +271,14 @@ export default async function handler(req, res) {
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
+    // Trích xuất thời gian cập nhật từ nguồn (Xử lý cả chữ Updated và số không dấu hai chấm)
     let updateTime = "";
-    const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{1,2}:\d{2})[^"]*)"/i);
+    const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{2,4})[^"]*)"/i);
     if (timeUpdateMatch) {
-        updateTime = timeUpdateMatch[1].replace(/Updated|Cập nhật|Cap nhat|[:|-]/gi, '').trim();
+        let rawTime = timeUpdateMatch[1].replace(/Updated|Cập nhật|Cap nhat/gi, '').trim();
+        // Fix lỗi 2153 thành 21:53
+        rawTime = rawTime.replace(/\b(\d{2})(\d{2})\b/g, '$1:$2');
+        updateTime = rawTime.replace(/^[:\-\s]+/, ''); // Bỏ dấu : ở đầu nếu có
     }
 
     const resXiaomi = processM3UText(textXiaomi);
@@ -328,12 +369,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // --- 3. KÊNH TRẠNG THÁI (Hiển thị như 1 kênh độc lập) ---
+    // --- 3. KÊNH TRẠNG THÁI (Đã fix lỗi dính số) ---
     const statusName = updateTime 
       ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` 
       : `Trạng thái: Ổn định`;
     
-    // Đặt group-title trống để app tự xếp nó thành 1 mục riêng (hoặc tên nhóm trùng tên kênh)
     parts.push(`#EXTINF:-1 group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     let combined = "#EXTM3U\n" + parts.join("\n\n");
