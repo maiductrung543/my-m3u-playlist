@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - Ultimate Clean (Fix triệt để xóa trận cũ)
+//  M3U Aggregator - The Ultimate Fix (Force Delete Old Matches)
 // ============================================================
 
 const SOURCES = {
@@ -102,33 +102,33 @@ function cleanAndAliasTeam(rawName) {
 }
 
 /** 
- * HÀM ĐỌC NGÀY GIỜ SIÊU LINH HOẠT (Đã fix lỗi eSports/F1)
+ * HÀM ĐỌC NGÀY GIỜ SIÊU LINH HOẠT (Đã fix triệt để)
  */
 function extractDateTime(title) {
-  // 1. Xóa toàn bộ Emoji/Icon để không ảnh hưởng đến việc đọc giờ
+  // 1. Xóa toàn bộ Emoji/Icon và các ký tự đặc biệt để không ảnh hưởng đến việc đọc giờ
   let cleanTitle = title.replace(/[\u{1F300}-\u{1F9FF}]/gu, ' ')
-                         .replace(/[\u2600-\u27BF]/g, ' '); // Xóa các icon khác
+                         .replace(/[\u2600-\u27BF]/g, ' ')
+                         .replace(/[\[\]\(\)\|\/\\\-]/g, ' ') // Thay thế ngoặc, gạch chéo bằng khoảng trắng
+                         .replace(/\s+/g, ' ');
 
   let h = -1, m = -1, d = -1, month = -1;
   let found = false;
 
-  // Regex 1: Tìm giờ và ngày (VD: 20:00 24/10, 20h00 24-10, 20:0 24/10)
-  let match = cleanTitle.match(/(\d{1,2})[h:](\d{1,2})[\s\-]*(\d{1,2})[\/\-](\d{1,2})/i);
+  // Tìm giờ và ngày (VD: 20 00 24 10, 20h00 24 10)
+  let match = cleanTitle.match(/(\d{1,2})[h:]?\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})/i);
+  
   if (match) {
-    h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
-    found = true;
-  } else {
-    // Regex 2: Tìm giờ liền không dấu hai chấm (VD: 2000 24/10)
-    match = cleanTitle.match(/\b(\d{2})(\d{2})[\s\-]+(\d{1,2})[\/\-](\d{1,2})/i);
-    if (match) {
-      h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
-      found = true;
+    let p1 = parseInt(match[1]); let p2 = parseInt(match[2]); 
+    let p3 = parseInt(match[3]); let p4 = parseInt(match[4]);
+    
+    // Tự động đoán xem đâu là giờ, đâu là ngày
+    if (p1 <= 23 && p2 <= 59 && p3 <= 31 && p4 <= 12) {
+       h = p1; m = p2; d = p3; month = p4; found = true;
     }
   }
 
   if (!found) return null;
-  // Kiểm tra tính hợp lệ (Nếu sai số liệu thì bỏ qua)
-  if (h > 23 || h < 0 || m > 59 || m < 0 || d > 31 || d < 1 || month > 12 || month < 1) return null;
+  if (h < 0 || m < 0 || d < 1 || month < 1) return null;
 
   const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
   const matchDate = new Date(now.getFullYear(), month - 1, d, h, m);
@@ -140,9 +140,6 @@ function extractDateTime(title) {
   };
 }
 
-/** 
- * Hàm bóc tách cấu trúc trận đấu
- */
 function parseMatchTitle(title) {
   if (!title) return null;
 
@@ -150,20 +147,19 @@ function parseMatchTitle(title) {
   let timeStr = timeInfo ? timeInfo.timeStr : "Sắp tới";
   let timeMs = timeInfo ? timeInfo.timeMs : (new Date().getTime() + 24 * 3600 * 1000);
 
-  // KIỂM TRA HẠN SỬ DỤNG: Nếu có ngày giờ và quá 2 tiếng -> Xóa
+  // XÓA TRẬN CŨ: Nếu có ngày giờ và đã quá 2 tiếng -> Bị xóa
   if (timeInfo) {
     const nowMs = new Date().getTime();
     if ((nowMs - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
-      return null; // Trả về null để hệ thống xóa kênh này
+      return null; 
     }
   }
 
-  // Làm sạch chuỗi để tìm tên đội
   let cleanTitle = title
     .replace(/\[.*?\]/g, ' ') 
     .replace(/\(.*?\)/g, ' ') 
     .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') 
-    .replace(/\b\d{1,2}[h:]?\d{1,2}\b/gi, ' ') 
+    .replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ') 
     .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ') 
     .replace(/\|.*/g, ' ') 
     .replace(/\s+/g, ' ') 
@@ -188,15 +184,14 @@ function parseMatchTitle(title) {
     cleanB: cleanB,
     timeStr: timeStr,
     timeMs: timeMs,
-    displayName: `${teamA.replace(/_/g, ' ').trim()} vs ${teamB.replace(/_/g, ' ').trim()}`
+    displayName: `${teamA.replace(/_ ((/g, ' ').trim()} vs ${teamB.replace(/_/g, ' ').trim()}`
   };
 }
 
-/** Xử lý & phân loại M3U */
-function processM3UText(text) {
-  if (!text || typeof text !== "string") return { matches: [], others: [] };
+function processM3UTextnow(text) {
+  if (!text ||Ms typeof text !== "string") return { matches -: [], others: [] time };
 
-  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const lines = text.replace(/\rInfo\n?/g, "\n").split("\n");
   const matches = [];
   const others = []; 
   let i = 0;
@@ -234,16 +229,14 @@ function processM3UText(text) {
         if (matchData) {
           matches.push({ extinf: line, url: url, title: title, matchData: matchData });
         } else {
-          // Nếu không phải trận đấu, kiểm tra xem có phải kênh cũ không
           const timeInfo = extractDateTime(title);
           if (timeInfo) {
              const nowMs = new Date().getTime();
-             if ((nowMs - timeInfo.timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
+             if.timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
                 i = urlIdx + 1;
-                continue; // Đã quá 2 tiếng -> Xóa luôn, không thêm vào đâu cả
+                continue; // Quá 2 tiếng -> Xóa
              }
           }
-          // Chỉ giữ lại Truyền Hình
           if (/truyen hinh/i.test(standardizeName(originalGroup))) {
              others.push({ extinf: line, url: url, title: title, originalGroup: originalGroup });
           }
@@ -362,7 +355,8 @@ export default async function handler(req, res) {
     let combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
-    res.setHeader("Cache-Control", "no-store"); 
+    // KHÔNG LƯU CACHE ĐỂ LUÔN CẬP NHẬT MỚI NHẤT
+    res.setHeader("Cache-Control", "no-store, max-age=0"); 
     res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
