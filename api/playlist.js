@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL FIX (No more 500 Errors)
+//  M3U Aggregator - FINAL (Đã phục hồi Logo kênh)
 // ============================================================
 
 const SOURCES = {
@@ -158,7 +158,6 @@ function processM3UText(text) {
               let isExpired = false;
 
               if (dt) {
-                // SỬA LỖI TẠI ĐÂY: Khai báo biến now trước khi sử dụng
                 const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
                 const matchDate = new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m);
                 if ((now.getTime() - matchDate.getTime()) / (1000 * 60 * 60) > EXPIRE_HOURS) {
@@ -167,6 +166,10 @@ function processM3UText(text) {
               }
 
               if (!isExpired) {
+                // LẤY CÁC THẺ THUỘC TÍNH GỐC (tvg-logo, tvg-id...) ĐỂ GIỮ LOGO
+                const attrMatch = line.match(/(tvg-[a-z]+="[^"]*"|tvg-[a-z]+='[^']*')/gi);
+                const attrStr = attrMatch ? attrMatch.join(" ") + " " : "";
+
                 let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
@@ -185,6 +188,7 @@ function processM3UText(text) {
                   matches.push({ 
                     url: url, 
                     title: title,
+                    attrStr: attrStr, // Lưu thuộc tính
                     cleanA: cleanAndAliasTeam(teamA),
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
@@ -194,7 +198,7 @@ function processM3UText(text) {
                   });
                 } else {
                   if (/truyen hinh/i.test(standardizeName(originalGroup))) {
-                     others.push({ url: url, title: title });
+                     others.push({ url: url, title: title, attrStr: attrStr });
                   }
                 }
               }
@@ -218,7 +222,6 @@ function processM3UText(text) {
 // ============================================================
 
 export default async function handler(req, res) {
-  // KHỞI TẠO MẢNG RỖNG DỰ PHÒNG TRƯỚC KHI CHẠY
   let combined = "#EXTM3U\n"; 
 
   try {
@@ -275,7 +278,8 @@ export default async function handler(req, res) {
 
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
-        let newExtinf = `#EXTINF:-1 group-title="📺 Truyền Hình",${ch.title}`;
+        // PHỤC HỒI LOGO CHO TRUYỀN HÌNH
+        let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="📺 Truyền Hình",${ch.title}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
@@ -283,23 +287,23 @@ export default async function handler(req, res) {
     for (const group of groupsList) {
       const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
-        let newExtinf = `#EXTINF:-1 group-title="${groupTitle}",${ch.blvName}`;
+        // PHỤC HỒI LOGO CHO TRẬN ĐẤU
+        let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="${groupTitle}",${ch.blvName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
 
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
-    parts.push(`#EXTINF:-1 group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
+    // Gán logo mặc định cho kênh trạng thái
+    parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
   } catch (err) {
-    // Nếu sập toàn bộ, gửi lại danh sách cơ bản thay vì lỗi 500
     combined = "#EXTM3U\n#EXTINF:-1 group-title=\"📺 Truyền Hình\",Lỗi tải danh sách\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm\n";
   }
 
-  // LUÔN TRẢ VỀ STATUS 200
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
   res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
   res.setHeader("Access-Control-Allow-Origin", "*");
