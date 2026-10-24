@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FIXED (Lọc giải đấu & Chuẩn hóa tên V-League)
+//  M3U Aggregator - ULTIMATE FINAL (Logo + Fix V-League + Fix Giải Đấu)
 // ============================================================
 
 const SOURCES = {
@@ -94,13 +94,13 @@ const ALIASES = {
   "quang nam": "quang nam fc", "da nang": "shb da nang", "shb da nang": "shb da nang"
 };
 
-// DANH SÁCH CÁC TỪ KHÓA CHỈ GIẢI ĐẤU CẦN XÓA (Để không bị nhầm thành tên đội)
+// TỪ KHÓA GIẢI ĐẤU CẦN XÓA (Để không bị nhầm thành tên đội)
 const LEAGUE_KEYWORDS = /\b(a league|a-league|men|women|ngoai hang|ngoại hạng|cup c1|c1|champions league|europa league|v league|v-league|v league 1|v league 2|cup quoc gia|afc cup|aff cup|sea games|u19|u20|u21|u23|giao huu|friendly)\b/gi;
 
 function cleanAndAliasTeam(rawName) {
   let name = standardizeName(rawName);
   
-  // XÓA TÊN GIẢI ĐẤU (A-League, Men, Ngoại Hạng...)
+  // XÓA TÊN GIẢI ĐẤU
   name = name.replace(LEAGUE_KEYWORDS, ' ');
   
   name = name.replace(/\b(fc|cf|sc|ac|club|calcio|sporting|cd|sco)\b/g, ' ')
@@ -188,11 +188,11 @@ function processM3UText(text) {
                   .replace(/\[.*?\]/g, ' ')
                   .replace(/\(.*?\)/g, ' ')
                   .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
-                  .replace(/^\s*\/\s*/, '') 
+                  .replace(/^\s*\/\s*/, '') // XÓA DẤU / Ở ĐẦU
                   .replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ')
                   .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ')
                   .replace(/\|.*/g, ' ')
-                  .replace(/^\s*\/\s*/, '') 
+                  .replace(/^\s*\/\s*/, '') // XÓA DẤU / LẦN 2
                   .replace(/\s+/g, ' ')
                   .trim();
 
@@ -202,7 +202,7 @@ function processM3UText(text) {
                   let teamA = vsMatch[1].trim();
                   let teamB = vsMatch[2].trim();
                   
-                  // XỬ LÝ ĐẶC BIỆT: NẾU ĐỘI B CÓ CHỨA TỪ KHÓA GIẢI ĐẤU (VD: A-League Men), CẮT BỎ
+                  // XỬ LÝ ĐẶC BIỆT: NẾU ĐỘI B CÓ CHỨA TỪ KHÓA GIẢI ĐẤU, CẮT BỎ
                   teamB = teamB.replace(LEAGUE_KEYWORDS, ' ').replace(/\s+/g, ' ').trim();
                   
                   if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
