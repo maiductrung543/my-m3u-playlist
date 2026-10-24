@@ -1,6 +1,5 @@
 // ============================================================
-//  M3U Aggregator - Final Version
-//  Tính năng: Gom nhóm thông minh, Sắp xếp thời gian, Fix lỗi trùng ngày giờ
+//  M3U Aggregator - Final Pro Max
 // ============================================================
 
 const SOURCES = {
@@ -83,11 +82,16 @@ const ALIASES = {
   "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
-  "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
+  "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna",
+  "santos fc sp": "santos", "santos sp": "santos"
 };
 
 function cleanAndAliasTeam(rawName) {
   let name = standardizeName(rawName);
+  
+  // Xóa các cụm từ chỉ giải đấu (A-League, Ngoại hạng anh, C1...)
+  name = name.replace(/\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g, ' ');
+  
   name = name.replace(/\b(fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g, '')
              .replace(/\s+/g, ' ').trim();
 
@@ -100,7 +104,7 @@ function cleanAndAliasTeam(rawName) {
 }
 
 /** 
- * Hàm bóc tách cấu trúc trận đấu (Đã Fix Lỗi Trùng Ngày Giờ)
+ * Hàm bóc tách cấu trúc trận đấu (Đã fix triệt để ngày tháng thừa)
  */
 function parseMatchTitle(title) {
   if (!title) return null;
@@ -109,7 +113,6 @@ function parseMatchTitle(title) {
   let timeMs = 0;
   const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
   
-  // 1. Tìm ngày giờ
   const timeMatch = title.match(/(\d{1,2})[h:](\d{2})\s*(?:-|)\s*(\d{1,2})[\/\-](\d{1,2})/i) || 
                     title.match(/(\d{1,2})[\/\-](\d{1,2})\s*(?:-|)\s*(\d{1,2})[h:](\d{2})/i);
   
@@ -132,12 +135,11 @@ function parseMatchTitle(title) {
   }
 
   // 2. Làm sạch chuỗi để lấy tên đội bóng
-  // Xóa toàn bộ phần ngoặc vuông (chứa ngày giờ cũ), ngoặc tròn (chứa BLV)
-  // Xóa các icon (bóng đá, bóng rổ, găng tay)
-  let cleanTitle = title.replace(/\[.*?\]/g, ' ')
-                        .replace(/\(.*?\)/g, ' ')
+  let cleanTitle = title.replace(/\[.*?\]/g, ' ') // Xóa [ngoặc vuông]
+                        .replace(/\(.*?\)/g, ' ') // Xóa (ngoặc tròn)
                         .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // Xóa Emoji
                         .replace(/^\d{1,2}[h:]\d{2}.*?\s+/i, ' ') // Xóa giờ ở đầu không ngoặc
+                        .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ') // XÓA NGÀY THÁNG TRƠ (VD: 25/10)
                         .replace(/\|.*/g, ' ').trim();
 
   // 3. Tìm cấu trúc "Đội A vs Đội B"
@@ -147,7 +149,6 @@ function parseMatchTitle(title) {
   let teamA = vsMatch[1].trim();
   let teamB = vsMatch[2].trim();
 
-  // Cắt đuôi tên BLV (VD: "Tottenham Lường Khô" -> "Tottenham")
   const teamBWords = teamB.split(' ');
   if (teamBWords.length > 2 && !ALIASES[teamB.toLowerCase()]) {
       teamB = teamBWords.slice(0, 2).join(' ');
@@ -157,13 +158,11 @@ function parseMatchTitle(title) {
   const cleanB = cleanAndAliasTeam(teamB);
 
   return {
-    rawA: teamA,
-    rawB: teamB,
     cleanA: cleanA,
     cleanB: cleanB,
     timeStr: timeStr,
     timeMs: timeMs,
-    displayName: `${teamA} vs ${teamB}`
+    displayName: `${teamA.replace(/_/g, ' ').trim()} vs ${teamB.replace(/_/g, ' ').trim()}`
   };
 }
 
@@ -235,7 +234,6 @@ export default async function handler(req, res) {
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
-    // Lấy thời gian cập nhật từ nội dung nguồn (thường nằm trong group-title của THTT)
     let updateTime = "";
     const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{1,2}:\d{2})[^"]*)"/i);
     if (timeUpdateMatch) {
@@ -288,11 +286,10 @@ export default async function handler(req, res) {
 
     const parts = [];
 
-    // Đưa Truyền Hình lên đầu tiên
+    // 2.1 Nhóm Truyền Hình (Ưu tiên số 1)
     const tvChannels = allOthers.filter(ch => /truyen hinh/i.test(standardizeName(ch.originalGroup)));
     const otherChannels = allOthers.filter(ch => !/truyen hinh/i.test(standardizeName(ch.originalGroup)));
 
-    // 2.1 Nhóm Truyền Hình
     if (tvChannels.length > 0) {
       tvChannels.forEach(ch => {
         let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="📺 Truyền Hình"`);
@@ -302,7 +299,6 @@ export default async function handler(req, res) {
 
     // 2.2 Các nhóm Trận Đấu
     for (const group of groupsList) {
-      // Sửa lại tên nhóm, không lặp lại ngày giờ
       const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
       
       group.streams.forEach((ch) => {
@@ -311,14 +307,14 @@ export default async function handler(req, res) {
         if (blvMatch) {
            newExtinf = newExtinf.replace(/,(.*)$/, `,${blvMatch[1]}`);
         } else {
-           let shortName = ch.title.replace(/^\[.*?\]\s*/, '').replace(/^[^\w\s]+\s*/, ''); // Xóa icon đầu
+           let shortName = ch.title.replace(/^\[.*?\]\s*/, '').replace(/^[^\w\s]+\s*/, ''); 
            newExtinf = newExtinf.replace(/,(.*)$/, `,${shortName}`);
         }
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
 
-    // 2.3 Các kênh lẻ khác (Khô Gà, Vua Sân Cỏ...)
+    // 2.3 Các kênh lẻ khác
     if (otherChannels.length > 0) {
       otherChannels.forEach(ch => {
         let finalGroup = ch.originalGroup;
@@ -333,11 +329,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // --- 3. KÊNH TRẠNG THÁI (Có thời gian cập nhật) ---
-    const statusTitle = updateTime 
-      ? `⏱️ Trạng thái: Ổn định (Cập nhật: ${updateTime})` 
-      : `⏱️ Trạng thái: Ổn định`;
-    parts.push(`#EXTINF:-1 group-title="ℹ️ Hệ Thống",${statusTitle}\n${STATUS_STREAM_URL}`);
+    // --- 3. KÊNH TRẠNG THÁI (Đã đưa ra ngoài nhóm Hệ Thống) ---
+    const statusName = updateTime 
+      ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` 
+      : `Trạng thái: Ổn định`;
+    
+    // Đặt group-title trùng với tên kênh để App tự tách nó ra thành 1 mục riêng lẻ
+    parts.push(`#EXTINF:-1 group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     let combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
