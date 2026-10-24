@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - NO CACHE - GUARANTEED WORK
+//  M3U Aggregator - Clean & Deduplicate
 // ============================================================
 
 const SOURCES = {
@@ -17,6 +17,10 @@ const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT = 8000;
 const EXPIRE_HOURS = 2; 
+
+// ============================================================
+//  Helpers
+// ============================================================
 
 async function fetchSafe(url) {
   try {
@@ -96,18 +100,13 @@ function cleanAndAliasTeam(rawName) {
   return name;
 }
 
-// HÀM ĐỌC NGÀY GIỜ ĐƠN GIẢN NHẤT CÓ THỂ
 function extractDateTime(title) {
   try {
-    // Xóa sạch mọi ký tự không phải chữ hoặc số
     let cleanTitle = title.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ');
-    
-    // Tìm định dạng: (số) (số) (số) (số) -> VD: 20 00 24 10
     let match = cleanTitle.match(/(\d{1,2})\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})/i);
     
     if (match) {
       let h = parseInt(match[1]), m = parseInt(match[2]), d = parseInt(match[3]), mon = parseInt(match[4]);
-      // Kiểm tra xem có đúng là ngày giờ không
       if (h >= 0 && h <= 23 && m >= 0 && m <= 59 && d >= 1 && d <= 31 && mon >= 1 && mon <= 12) {
         return { h, m, d, mon };
       }
@@ -116,8 +115,11 @@ function extractDateTime(title) {
   return null;
 }
 
-function parseMatchTitle(title) {
+function parseMatchTitle(title, url) {
   if (!title) return null;
+
+  // 1. LOẠI BỎ LINK FLV
+  if (url.toLowerCase().includes(".flv")) return null;
 
   let dt = extractDateTime(title);
   let timeStr = "Sắp tới";
@@ -129,13 +131,11 @@ function parseMatchTitle(title) {
     timeStr = `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}`;
     timeMs = matchDate.getTime();
 
-    // KIỂM TRA QUÁ 2 TIẾNG -> XÓA
     if ((now.getTime() - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
-      return null; // Trả về null = Xóa
+      return null;
     }
   }
 
-  // Tìm tên trận đấu
   let cleanTitle = title
     .replace(/\[.*?\]/g, ' ') 
     .replace(/\(.*?\)/g, ' ') 
@@ -157,12 +157,23 @@ function parseMatchTitle(title) {
       teamB = teamBWords.slice(0, 2).join(' ');
   }
   
+  // Lấy tên hiển thị của BLV (Phần trong ngoặc)
+  let blvName = "Live";
+  const blvMatch = title.match(/\((.*?)\)/);
+  if (blvMatch) {
+      blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim(); // Xóa [hls] nếu có
+  } else {
+      // Nếu không có ngoặc, cắt lấy phần sau dấu ]
+      blvName = title.replace(/^\[.*?\]\s*/, '').replace(/^[^\w\s]+\s*/, '').trim();
+  }
+
   return {
     cleanA: cleanAndAliasTeam(teamA),
     cleanB: cleanAndAliasTeam(teamB),
     timeStr: timeStr,
     timeMs: timeMs,
-    displayName: `${teamA.replace(/_/g, ' ').trim()} vs ${teamB.replace(/_/g, ' ').trim()}`
+    displayName: `${teamA.replace(/_/g, ' ').trim()} vs ${teamB.replace(/_/g, ' ').trim()}`,
+    blvName: blvName
   };
 }
 
@@ -198,12 +209,15 @@ function processM3UText(text) {
         if (!isBlocked) {
           const titleMatch = line.match(/,(.*)$/);
           const title = titleMatch ? titleMatch[1].trim() : "";
-          const matchData = parseMatchTitle(title);
+          
+          const matchData = parseMatchTitle(title, url);
 
           if (matchData) {
             matches.push({ extinf: line, url: url, title: title, matchData: matchData });
           } else {
-            // Nếu là kênh lẻ, kiểm tra xem có quá hạn không
+            // KIỂM TRA LINK FLV CHO KÊNH LẺ
+            if (url.toLowerCase().includes(".flv")) { i = urlIdx + 1; continue; }
+
             const dt = extractDateTime(title);
             if (dt) {
               const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
@@ -212,7 +226,6 @@ function processM3UText(text) {
                  i = urlIdx + 1; continue;
               }
             }
-            // Chỉ giữ Truyền Hình
             if (/truyen hinh/i.test(standardizeName(originalGroup))) {
                others.push({ extinf: line, url: url, title: title });
             }
@@ -226,6 +239,10 @@ function processM3UText(text) {
   }
   return { matches, others };
 }
+
+// ============================================================
+//  Handler
+// ============================================================
 
 export default async function handler(req, res) {
   try {
@@ -251,6 +268,7 @@ export default async function handler(req, res) {
     const allOthers = [...resXiaomi.others, ...resThTT.others, ...resXoiChe.others];
 
     const groupsList = []; 
+
     allMatches.forEach(ch => {
       try {
         const m = ch.matchData;
@@ -261,8 +279,13 @@ export default async function handler(req, res) {
             foundGroup = group; break;
           }
         }
+        
         if (foundGroup) {
-          foundGroup.streams.push(ch);
+          // LỌC TRÙNG LẶP: Kiểm tra xem tên BLV này đã có trong nhóm chưa
+          const isDuplicate = foundGroup.streams.some(s => s.matchData.blvName === m.blvName);
+          if (!isDuplicate) {
+             foundGroup.streams.push(ch);
+          }
           if (m.displayName.length > foundGroup.displayName.length) foundGroup.displayName = m.displayName;
         } else {
           groupsList.push({ cleanA: m.cleanA, cleanB: m.cleanB, displayName: m.displayName, timeStr: m.timeStr, timeMs: m.timeMs, streams: [ch] });
@@ -284,13 +307,8 @@ export default async function handler(req, res) {
       const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
         let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="${groupTitle}"`);
-        const blvMatch = ch.title.match(/\((.*?)\)/);
-        if (blvMatch) {
-           newExtinf = newExtinf.replace(/,(.*)$/, `,${blvMatch[1]}`);
-        } else {
-           let shortName = ch.title.replace(/^\[.*?\]\s*/, '').replace(/^[^\w\s]+\s*/, '').trim(); 
-           newExtinf = newExtinf.replace(/,(.*)$/, `,${shortName}`);
-        }
+        // Tên kênh con hiển thị là tên BLV
+        newExtinf = newExtinf.replace(/,(.*)$/, `,${ch.matchData.blvName}`);
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
@@ -301,7 +319,6 @@ export default async function handler(req, res) {
     let combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
-    // VÔ HIỆU HÓA CACHE 100%
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
@@ -311,7 +328,6 @@ export default async function handler(req, res) {
     return res.status(200).send(combined);
 
   } catch (err) {
-    // Nếu có lỗi, trả về file rỗng thay vì lỗi 500
     res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
     return res.status(200).send("#EXTM3U\n");
   }
