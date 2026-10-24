@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL FIX (No more 500 Errors)
+//  M3U Aggregator - FINAL FIX (Chỉ lọc bóng đá, xóa môn khác)
 // ============================================================
 
 const SOURCES = {
@@ -11,6 +11,15 @@ const SOURCES = {
 const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
+];
+
+// BỔ SUNG: Danh sách đen các môn thể thao/game cần xóa (Không phải bóng đá)
+const NON_FOOTBALL_KEYWORDS = [
+  "bong ro", "basketball", "nba", "bong chuyen", "volleyball", 
+  "cau long", "badminton", "quyen anh", "boxing", "ufc", "vo thuat", 
+  "tennis", "quan vot", "golf", "esports", "game", "cs2", "lol", 
+  "lien minh", "dota", "pubg", "f1", "dua xe", "billiards", "bida",
+  "pickleball", "baseball", "bong bau duc", "rugby", "cricket", "khuc con cau"
 ];
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
@@ -153,12 +162,15 @@ function processM3UText(text) {
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
-            if (!isBlocked && !isFlv) {
+            // BỔ SUNG: KIỂM TRA XEM CÓ PHẢI MÔN THỂ THAO KHÁC KHÔNG
+            const normTitle = standardizeName(title);
+            const isNotFootball = NON_FOOTBALL_KEYWORDS.some(kw => normTitle.includes(kw));
+
+            if (!isBlocked && !isFlv && !isNotFootball) {
               const dt = extractDateTime(title);
               let isExpired = false;
 
               if (dt) {
-                // SỬA LỖI TẠI ĐÂY: Khai báo biến now trước khi sử dụng
                 const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
                 const matchDate = new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m);
                 if ((now.getTime() - matchDate.getTime()) / (1000 * 60 * 60) > EXPIRE_HOURS) {
@@ -218,7 +230,6 @@ function processM3UText(text) {
 // ============================================================
 
 export default async function handler(req, res) {
-  // KHỞI TẠO MẢNG RỖNG DỰ PHÒNG TRƯỚC KHI CHẠY
   let combined = "#EXTM3U\n"; 
 
   try {
@@ -295,11 +306,9 @@ export default async function handler(req, res) {
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
   } catch (err) {
-    // Nếu sập toàn bộ, gửi lại danh sách cơ bản thay vì lỗi 500
     combined = "#EXTM3U\n#EXTINF:-1 group-title=\"📺 Truyền Hình\",Lỗi tải danh sách\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm\n";
   }
 
-  // LUÔN TRẢ VỀ STATUS 200
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
   res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
   res.setHeader("Access-Control-Allow-Origin", "*");
