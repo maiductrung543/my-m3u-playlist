@@ -1,11 +1,10 @@
 // ============================================================
-//  M3U Aggregator - Vercel Serverless Function (SMART GROUPING & AUTO-CLEAN)
-//  Nguồn: Xiaomi (Truyền hình) + Xôi Chè + THTT
-//  Tính năng: Gom nhóm theo Trận Đấu (Chống lệch tên), giữ nguyên nhóm Truyền Hình, tự động xóa trận cũ quá 2 tiếng.
+//  M3U Aggregator - Vercel Serverless Function
+//  Fix: Gom nhóm bóng đá thông minh bằng Fuzzy Match + Giữ nhóm Truyền Hình
 // ============================================================
 
 const SOURCES = {
-  xiaomi: "https://tinyurl.com/vietxiaomi", // Lấy lại nhóm Truyền Hình
+  xiaomi: "https://tinyurl.com/vietxiaomi",
   thtt:   "https://thtt.pages.dev/tttt.m3u",
   xoiche: "https://tinyurl.com/xoiche1",
 };
@@ -19,20 +18,6 @@ const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT = 8000;
 const EXPIRE_HOURS = 2; 
-
-// ============================================================
-//  TỪ ĐIỂN RÚT GỌN TÊN ĐỘI BÓNG (Giúp gom nhóm chính xác)
-// ============================================================
-const TEAM_ALIASES = {
-  "man city": "manchester city", "man utd": "manchester united", "man united": "manchester united",
-  "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
-  "west ham utd": "west ham", "brighton hove": "brighton", "nottm forest": "nottingham forest",
-  "sheffield utd": "sheffield united", "psg": "paris saint germain", "bayern munich": "bayern munchen",
-  "dortmund": "borussia dortmund", "monchengladbach": "gladbach", "leipzig": "rb leipzig",
-  "inter milan": "inter", "ac milan": "milan", "juve": "juventus", "roma": "as roma",
-  "atletico madrid": "atletico", "athletic bilbao": "athletic club", "real betis": "betis",
-  "sociedad": "real sociedad", "villarreal": "villarreal cf", "vallecano": "rayo vallecano"
-};
 
 // ============================================================
 //  Helpers
@@ -66,6 +51,32 @@ async function fetchSafe(url) {
 }
 
 /** 
+ * Hàm tạo "Chìa khóa" gom nhóm thông minh (Fuzzy Key)
+ * Lấy 3 ký tự đầu của mỗi từ (bỏ qua các từ nối như fc, cf, sc...)
+ */
+function getFuzzyKey(matchName) {
+  if (!matchName) return "";
+  
+  // Bỏ các hậu tố, tiền tố thừa
+  let clean = matchName.toLowerCase()
+    .replace(/\b(fc|cf|sc|ac|club|calcio|sporting|atletico|atletica|de|real|cd)\b/g, '')
+    .replace(/[^a-z0-9\s]/g, '') // bỏ ký tự đặc biệt
+    .replace(/\s+/g, ' ') // gộp khoảng trắng
+    .trim();
+
+  // Tách thành 2 đội (dựa vào chữ vs)
+  const parts = clean.split(/\s+vs\s+/);
+  if (parts.length !== 2) return clean; // Không phải dạng VS thì giữ nguyên
+
+  // Hàm rút gọn: Giữ 3 chữ cái đầu của mỗi từ
+  const shortenTeam = (team) => {
+    return team.split(' ').map(word => word.substring(0, 3)).join('');
+  };
+
+  return `${shortenTeam(parts[0])}_vs_${shortenTeam(parts[1])}`;
+}
+
+/** 
  * Hàm bóc tách tên trận đấu VÀ kiểm tra hạn sử dụng
  */
 function extractMatchInfo(title) {
@@ -82,17 +93,10 @@ function extractMatchInfo(title) {
     matchName = bracketMatch[1];
   }
 
-  // Chuẩn hóa tên trận: chữ thường, xóa khoảng trắng, đưa về "vs"
-  let normalized = matchName.toLowerCase().replace(/\s+/g, ' ').trim();
-  normalized = normalized.replace(/\s+(v|vs|versus|-)\s+/g, ' vs ');
+  // Đưa về dạng chuẩn để tí nữa băm
+  let normalized = matchName.toLowerCase().replace(/\s+(v|vs|versus|-)\s+/g, ' vs ');
   
-  // Áp dụng từ điển rút gọn tên đội bóng (Fuzzy match)
-  Object.keys(TEAM_ALIASES).forEach(alias => {
-    const regex = new RegExp(`\\b${alias}\\b`, 'g');
-    normalized = normalized.replace(regex, TEAM_ALIASES[alias]);
-  });
-
-  // --- LOGIC KIỂM TRA THỜI GIAN (Quá 2 tiếng thì xóa) ---
+  // --- LOGIC KIỂM TRA THỜI GIAN ---
   let isExpired = false;
   try {
     const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
@@ -116,7 +120,11 @@ function extractMatchInfo(title) {
     }
   } catch (e) { }
 
-  return { displayName, normalized, isExpired };
+  return { 
+    displayName, 
+    fuzzyKey: getFuzzyKey(normalized), // Dùng chìa khóa thông minh để gom
+    isExpired 
+  };
 }
 
 /** Xử lý & lọc nội dung M3U */
@@ -125,7 +133,7 @@ function processM3UText(text) {
 
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const matches = [];
-  const others = []; // Chứa các kênh không phải bóng đá (Truyền hình...)
+  const others = []; 
   let i = 0;
 
   while (i < lines.length) {
@@ -143,7 +151,7 @@ function processM3UText(text) {
       
       const groupMatch = line.match(/group-title="([^"]*)"/i);
       if (groupMatch) {
-        originalGroup = groupMatch[1]; // Lưu lại tên nhóm gốc (VD: Truyền Hình)
+        originalGroup = groupMatch[1]; 
         const normGroup = normalizeStr(originalGroup);
         isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => normGroup.includes(kw));
       }
@@ -164,7 +172,6 @@ function processM3UText(text) {
         
         const matchInfo = extractMatchInfo(title);
 
-        // Nếu là bóng đá và quá hạn -> Bỏ qua
         if (matchInfo && matchInfo.isExpired) {
           i = urlIdx + 1;
           continue; 
@@ -173,9 +180,9 @@ function processM3UText(text) {
         const channelData = { extinf: line, url: url, title: title, originalGroup: originalGroup, matchInfo: matchInfo };
 
         if (matchInfo) {
-           matches.push(channelData); // Đưa vào danh sách trận đấu
+           matches.push(channelData); 
         } else {
-           others.push(channelData); // Đưa vào danh sách truyền hình
+           others.push(channelData); 
         }
       }
       i = urlIdx + 1;
@@ -203,21 +210,17 @@ export default async function handler(req, res) {
       fetchSafe(SOURCES.xoiche),
     ]);
 
-    // Phân loại kênh
     const resXiaomi = processM3UText(textXiaomi);
     const resThTT = processM3UText(textThTT);
     const resXoiChe = processM3UText(textXoiChe);
 
-    // Gom tất cả các trận bóng đá lại
     const allMatches = [...resXiaomi.matches, ...resThTT.matches, ...resXoiChe.matches];
-    
-    // Gom tất cả kênh truyền hình (không phải bóng đá) lại
     const allOthers = [...resXiaomi.others, ...resThTT.others, ...resXoiChe.others];
 
-    // --- 1. XỬ LÝ NHÓM TRẬN ĐẤU ---
+    // --- 1. XỬ LÝ NHÓM TRẬN ĐẤU (Dùng Fuzzy Key) ---
     const groupedMatches = {}; 
     allMatches.forEach(ch => {
-      const key = ch.matchInfo.normalized;
+      const key = ch.matchInfo.fuzzyKey; 
       if (!groupedMatches[key]) {
         groupedMatches[key] = { displayName: ch.matchInfo.displayName, streams: [] };
       }
@@ -242,7 +245,6 @@ export default async function handler(req, res) {
 
     // --- 2. XỬ LÝ NHÓM TRUYỀN HÌNH / KÊNH KHÁC ---
     if (allOthers.length > 0) {
-      // Sắp xếp để nhóm Truyền Hình lên đầu
       allOthers.sort((a, b) => {
         if (a.originalGroup.includes("Truyền Hình") && !b.originalGroup.includes("Truyền Hình")) return -1;
         if (!a.originalGroup.includes("Truyền Hình") && b.originalGroup.includes("Truyền Hình")) return 1;
@@ -250,8 +252,6 @@ export default async function handler(req, res) {
       });
 
       allOthers.forEach(ch => {
-        // Giữ nguyên group-title gốc (Truyền Hình, Phim, ...)
-        // Nếu nó thuộc mấy nhóm rác không tên thì đưa vào Kênh Khác
         let finalGroup = ch.originalGroup;
         if (normalizeStr(finalGroup) === "" || normalizeStr(finalGroup).length < 2) finalGroup = "📺 Kênh Khác";
         
@@ -264,7 +264,6 @@ export default async function handler(req, res) {
     const statusTitle = `⏱️ Trạng thái: Hoạt động bình thường`;
     parts.push(`#EXTINF:-1 group-title="${statusTitle}",Hệ thống ổn định\n${STATUS_STREAM_URL}`);
 
-    // Ghép lại
     let combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
