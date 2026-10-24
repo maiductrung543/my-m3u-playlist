@@ -1,6 +1,6 @@
 // ============================================================
-//  M3U Aggregator - Vercel Serverless Function
-//  Fix: Gom nhóm bóng đá thông minh bằng Fuzzy Match + Giữ nhóm Truyền Hình
+//  M3U Aggregator - Ultimate Version
+//  Tính năng: Quét toàn bộ các nhóm, gom trận đấu bằng AI Logic, dọn dẹp nhóm rác.
 // ============================================================
 
 const SOURCES = {
@@ -9,6 +9,7 @@ const SOURCES = {
   xoiche: "https://tinyurl.com/xoiche1",
 };
 
+// Từ điển các nhà cái lậu cần chặn (nếu có link)
 const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
@@ -22,16 +23,6 @@ const EXPIRE_HOURS = 2;
 // ============================================================
 //  Helpers
 // ============================================================
-
-function normalizeStr(str) {
-  if (!str) return "";
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/gi, "d")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
 
 async function fetchSafe(url) {
   try {
@@ -51,83 +42,94 @@ async function fetchSafe(url) {
 }
 
 /** 
- * Hàm tạo "Chìa khóa" gom nhóm thông minh (Fuzzy Key)
- * Lấy 3 ký tự đầu của mỗi từ (bỏ qua các từ nối như fc, cf, sc...)
+ * Hàm tạo Chìa khóa gom nhóm siêu việt
  */
-function getFuzzyKey(matchName) {
-  if (!matchName) return "";
-  
-  // Bỏ các hậu tố, tiền tố thừa
-  let clean = matchName.toLowerCase()
-    .replace(/\b(fc|cf|sc|ac|club|calcio|sporting|atletico|atletica|de|real|cd)\b/g, '')
-    .replace(/[^a-z0-9\s]/g, '') // bỏ ký tự đặc biệt
-    .replace(/\s+/g, ' ') // gộp khoảng trắng
+function getMatchFuzzyKey(title) {
+  if (!title) return null;
+
+  // 1. Tìm phần tên trận đấu (Xóa các phần như [Giờ], (BLV), |, - ở đầu/cuối)
+  let cleanTitle = title
+    .replace(/\[.*?\]/g, ' ') // Xóa [18:30 - 24/10]
+    .replace(/\(.*?\)/g, ' ') // Xóa (BLV Xôi Xoài)
+    .replace(/\|.*/g, ' ')    // Xóa phần sau dấu |
     .trim();
 
-  // Tách thành 2 đội (dựa vào chữ vs)
-  const parts = clean.split(/\s+vs\s+/);
-  if (parts.length !== 2) return clean; // Không phải dạng VS thì giữ nguyên
+  // 2. Tìm cấu trúc "Đội A vs Đội B" (hỗ trợ vs, v, -, versus)
+  // Regex: Bắt lấy BẤT KỲ ký tự nào (trừ ngoặc) đứng trước và sau chữ vs/v/-
+  const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
+  
+  if (!vsMatch) return null; // Không phải trận đấu
 
-  // Hàm rút gọn: Giữ 3 chữ cái đầu của mỗi từ
-  const shortenTeam = (team) => {
-    return team.split(' ').map(word => word.substring(0, 3)).join('');
+  let teamA = vsMatch[1].trim();
+  let teamB = vsMatch[2].trim();
+
+  // 3. Hàm làm sạch tên đội bóng
+  const cleanTeamName = (name) => {
+    let n = name.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Bỏ dấu tiếng Việt
+      .replace(/\b(fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nữ|women)\b/g, '') // Bỏ hậu tố
+      .replace(/[^a-z0-9\s]/g, '') // Bỏ ký tự đặc biệt
+      .replace(/\s+/g, ' ') // Gộp khoảng trắng
+      .trim();
+    
+    // Từ điển đồng nghĩa (Synonym)
+    const aliases = {
+      "man city": "manchester city", "man utd": "manchester united", "man united": "manchester united",
+      "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
+      "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
+      "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
+      "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
+      "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid", "ath madrid": "atleti madrid", "athletic madrid": "atleti madrid",
+      "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
+      "vallecano": "rayo vallecano", "elche cf": "elche", "ny red bulls": "new york red bulls"
+    };
+    
+    // Thay thế bằng tên chuẩn nếu có trong từ điển
+    Object.keys(aliases).forEach(k => {
+      if (n === k || n.includes(k)) n = n.replace(k, aliases[k]);
+    });
+
+    // Lấy 4 chữ cái đầu của mỗi từ để so sánh (VD: Manchester City -> manc_city)
+    return n.split(' ').map(w => w.substring(0, 4)).join('');
   };
 
-  return `${shortenTeam(parts[0])}_vs_${shortenTeam(parts[1])}`;
+  const keyA = cleanTeamName(teamA);
+  const keyB = cleanTeamName(teamB);
+
+  // Sắp xếp A-Z để tránh trường hợp nguồn ghi "A vs B", nguồn khác ghi "B vs A"
+  const finalKey = [keyA, keyB].sort().join('_vs_');
+
+  return {
+    fuzzyKey: finalKey,
+    displayName: `${teamA} vs ${teamB}` // Tên hiển thị sạch (VD: Rayo Vallecano vs Elche)
+  };
 }
 
 /** 
- * Hàm bóc tách tên trận đấu VÀ kiểm tra hạn sử dụng
+ * Trích xuất thời gian để xóa trận cũ
  */
-function extractMatchInfo(title) {
-  if (!title) return null;
-  
-  const match = title.match(/^(\[.*?\]\s*.*?)\s*\(/);
-  if (!match) return null;
-
-  let displayName = match[1].trim(); 
-  let matchName = displayName;
-
-  const bracketMatch = matchName.match(/^\[.*?\]\s*(.*)$/);
-  if (bracketMatch) {
-    matchName = bracketMatch[1];
-  }
-
-  // Đưa về dạng chuẩn để tí nữa băm
-  let normalized = matchName.toLowerCase().replace(/\s+(v|vs|versus|-)\s+/g, ' vs ');
-  
-  // --- LOGIC KIỂM TRA THỜI GIAN ---
-  let isExpired = false;
+function isMatchExpired(title) {
   try {
     const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    const timeMatch = displayName.match(/(?:\[)?(\d{1,2})[:h](\d{2}).*?(\d{1,2})[\/\-](\d{1,2})/i) || 
-                      displayName.match(/(?:\[)?(\d{1,2})[\/\-](\d{1,2}).*?(\d{1,2})[:h](\d{2})/i);
+    const timeMatch = title.match(/(?:\[)?(\d{1,2})[:h](\d{2}).*?(\d{1,2})[\/\-](\d{1,2})/i) || 
+                      title.match(/(?:\[)?(\d{1,2})[\/\-](\d{1,2}).*?(\d{1,2})[:h](\d{2})/i);
     
     if (timeMatch) {
       let h, m, d, month;
       if (timeMatch[0].indexOf(':') < timeMatch[0].indexOf('/') || timeMatch[0].indexOf(':') < timeMatch[0].indexOf('-')) {
-        h = parseInt(timeMatch[1]); m = parseInt(timeMatch[2]);
-        d = parseInt(timeMatch[3]); month = parseInt(timeMatch[4]);
+        h = parseInt(timeMatch[1]); m = parseInt(timeMatch[2]); d = parseInt(timeMatch[3]); month = parseInt(timeMatch[4]);
       } else {
-        d = parseInt(timeMatch[1]); month = parseInt(timeMatch[2]);
-        h = parseInt(timeMatch[3]); m = parseInt(timeMatch[4]);
+        d = parseInt(timeMatch[1]); month = parseInt(timeMatch[2]); h = parseInt(timeMatch[3]); m = parseInt(timeMatch[4]);
       }
       const matchDate = new Date(now.getFullYear(), month - 1, d, h, m);
       if (matchDate.getMonth() < now.getMonth() - 6) matchDate.setFullYear(now.getFullYear() + 1);
-      
-      const diffMs = now - matchDate;
-      if (diffMs / (1000 * 60 * 60) > EXPIRE_HOURS) isExpired = true;
+      if ((now - matchDate) / (1000 * 60 * 60) > EXPIRE_HOURS) return true;
     }
-  } catch (e) { }
-
-  return { 
-    displayName, 
-    fuzzyKey: getFuzzyKey(normalized), // Dùng chìa khóa thông minh để gom
-    isExpired 
-  };
+  } catch (e) {}
+  return false;
 }
 
-/** Xử lý & lọc nội dung M3U */
+/** Xử lý & phân loại M3U */
 function processM3UText(text) {
   if (!text || typeof text !== "string") return { matches: [], others: [] };
 
@@ -139,20 +141,14 @@ function processM3UText(text) {
   while (i < lines.length) {
     const line = lines[i].trim();
 
-    if (line.includes('group-title="') && /update|cập nhật|cap nhat/i.test(line)) {
-      i++;
-      if (i < lines.length && /^https?:\/\//i.test(lines[i].trim())) i++;
-      continue;
-    }
-
     if (line.startsWith("#EXTINF")) {
-      let isBlocked = false;
       let originalGroup = "Kênh Khác";
+      let isBlocked = false;
       
       const groupMatch = line.match(/group-title="([^"]*)"/i);
       if (groupMatch) {
-        originalGroup = groupMatch[1]; 
-        const normGroup = normalizeStr(originalGroup);
+        originalGroup = groupMatch[1];
+        const normGroup = originalGroup.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
         isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => normGroup.includes(kw));
       }
 
@@ -170,20 +166,17 @@ function processM3UText(text) {
         const titleMatch = line.match(/,(.*)$/);
         const title = titleMatch ? titleMatch[1].trim() : "";
         
-        const matchInfo = extractMatchInfo(title);
+        // Phân tích xem đây có phải trận bóng đá không
+        const matchData = getMatchFuzzyKey(title);
 
-        if (matchInfo && matchInfo.isExpired) {
-          i = urlIdx + 1;
-          continue; 
+        // Nếu là bóng đá VÀ chưa hết hạn
+        if (matchData && !isMatchExpired(title)) {
+          matches.push({ extinf: line, url: url, title: title, matchData: matchData });
+        } else if (!matchData) {
+          // Không phải bóng đá -> Đưa vào nhóm khác
+          others.push({ extinf: line, url: url, title: title, originalGroup: originalGroup });
         }
-
-        const channelData = { extinf: line, url: url, title: title, originalGroup: originalGroup, matchInfo: matchInfo };
-
-        if (matchInfo) {
-           matches.push(channelData); 
-        } else {
-           others.push(channelData); 
-        }
+        // (Nếu là bóng đá nhưng hết hạn thì bỏ luôn, không thêm vào mảng nào cả)
       }
       i = urlIdx + 1;
       continue;
@@ -205,9 +198,7 @@ export default async function handler(req, res) {
 
   try {
     const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
-      fetchSafe(SOURCES.xiaomi),
-      fetchSafe(SOURCES.thtt),
-      fetchSafe(SOURCES.xoiche),
+      fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
     const resXiaomi = processM3UText(textXiaomi);
@@ -217,24 +208,32 @@ export default async function handler(req, res) {
     const allMatches = [...resXiaomi.matches, ...resThTT.matches, ...resXoiChe.matches];
     const allOthers = [...resXiaomi.others, ...resThTT.others, ...resXoiChe.others];
 
-    // --- 1. XỬ LÝ NHÓM TRẬN ĐẤU (Dùng Fuzzy Key) ---
+    // --- 1. GOM NHÓM TRẬN ĐẤU ---
     const groupedMatches = {}; 
     allMatches.forEach(ch => {
-      const key = ch.matchInfo.fuzzyKey; 
+      const key = ch.matchData.fuzzyKey; 
       if (!groupedMatches[key]) {
-        groupedMatches[key] = { displayName: ch.matchInfo.displayName, streams: [] };
+        groupedMatches[key] = { displayName: ch.matchData.displayName, streams: [] };
+      }
+      // Lấy thời gian (nếu có) từ kênh đầu tiên để hiển thị lên tên nhóm
+      if (!groupedMatches[key].timePrefix) {
+        const timeMatch = ch.title.match(/^\[(.*?)\]/);
+        if (timeMatch) groupedMatches[key].timePrefix = timeMatch[1];
       }
       groupedMatches[key].streams.push(ch);
     });
 
     const parts = [];
 
+    // Duyệt qua các nhóm trận đấu
     for (const key in groupedMatches) {
       const group = groupedMatches[key];
-      const groupTitle = `⚽ ${group.displayName}`; 
+      const timeStr = group.timePrefix ? `[${group.timePrefix}] ` : '';
+      const groupTitle = `⚽ ${timeStr}${group.displayName}`; 
       
       group.streams.forEach((ch) => {
         let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="${groupTitle}"`);
+        // Rút gọn tên BLV
         const blvMatch = ch.title.match(/\((.*?)\)/);
         if (blvMatch) {
            newExtinf = newExtinf.replace(/,(.*)$/, `,${blvMatch[1]}`);
@@ -245,15 +244,15 @@ export default async function handler(req, res) {
 
     // --- 2. XỬ LÝ NHÓM TRUYỀN HÌNH / KÊNH KHÁC ---
     if (allOthers.length > 0) {
-      allOthers.sort((a, b) => {
-        if (a.originalGroup.includes("Truyền Hình") && !b.originalGroup.includes("Truyền Hình")) return -1;
-        if (!a.originalGroup.includes("Truyền Hình") && b.originalGroup.includes("Truyền Hình")) return 1;
-        return 0;
-      });
-
       allOthers.forEach(ch => {
         let finalGroup = ch.originalGroup;
-        if (normalizeStr(finalGroup) === "" || normalizeStr(finalGroup).length < 2) finalGroup = "📺 Kênh Khác";
+        const normGroup = finalGroup.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        
+        // Gom các nhóm rác (Vua Sân Cỏ, Khô Gà...) vào "Kênh Khác"
+        // Chỉ giữ lại nhóm Truyền Hình, Phim, Sự Kiện
+        if (!/truyen hinh|phim|su kien|the thao|hoat hinh|thieu nhi/i.test(normGroup)) {
+           finalGroup = "📺 Kênh Khác / Sự Kiện";
+        }
         
         let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="${finalGroup}"`);
         parts.push(`${newExtinf}\n${ch.url}`);
@@ -261,13 +260,12 @@ export default async function handler(req, res) {
     }
 
     // --- 3. KÊNH TRẠNG THÁI ---
-    const statusTitle = `⏱️ Trạng thái: Hoạt động bình thường`;
-    parts.push(`#EXTINF:-1 group-title="${statusTitle}",Hệ thống ổn định\n${STATUS_STREAM_URL}`);
+    parts.push(`#EXTINF:-1 group-title="⏱️ Trạng thái",Hệ thống ổn định\n${STATUS_STREAM_URL}`);
 
     let combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
-    res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=600");
+    res.setHeader("Cache-Control", "no-store"); // Không cache để bạn test dễ hơn, lúc ưng thì đổi lại 300
     res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
