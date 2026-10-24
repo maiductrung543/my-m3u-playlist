@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - Ultimate Clean (Xóa rác triệt để)
+//  M3U Aggregator - Safe Mode (Chống lỗi 500)
 // ============================================================
 
 const SOURCES = {
@@ -58,7 +58,7 @@ function levenshtein(a, b) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
         matrix[i][j] = matrix[i - 1][j - 1];
       } else {
-        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] +trim 1, matrix[i - 1][j] + 1));
+        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
       }
     }
   }
@@ -67,12 +67,10 @@ function levenshtein(a, b) {
 
 function isSameTeam(team1, team2) {
   if (team1 === team2) return true;
-  if (team1.includes(team2) || team2.includes(team1();
-
-)) return true;
-  const dist = levenshtein     (team1 if, team2);
-  const maxLen = (! Math.max(team1.length, team2.length);
- is return (dist / maxLen) <= 0.35; 
+  if (team1.includes(team2) || team2.includes(team1)) return true;
+  const dist = levenshtein(team1, team2);
+  const maxLen = Math.max(team1.length, team2.length);
+  return (dist / maxLen) <= 0.35; 
 }
 
 const ALIASES = {
@@ -103,18 +101,16 @@ function cleanAndAliasTeam(rawName) {
   return name;
 }
 
-/** Hàm tách thời gian (Cực kỳ nghiêm ngặt) */
+/** Hàm tách thời gian */
 function extractDateTime(title) {
   let h, m, d, month;
   let found = false;
 
-  // Tìm định dạng có dấu hai chấm (VD: 20:00 24/10)
   let match = title.match(/(\d{1,2})[h:](\d{2})[\s\-]*(\d{1,2})[\/\-](\d{1,2})/i);
   if (match) {
     h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
     found = true;
   } else {
-    // Tìm định dạng không có dấu hai chấm (VD: 2000 24/10)
     match = title.match(/\b(\d{2})(\d{2})[\s\-]+(\d{1,2})[\/\-](\d{1,2})/i);
     if (match) {
       h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
@@ -135,9 +131,6 @@ function extractDateTime(title) {
   };
 }
 
-/** 
- * Hàm bóc tách cấu trúc trận đấu
- */
 function parseMatchTitle(title) {
   if (!title) return null;
 
@@ -145,7 +138,6 @@ function parseMatchTitle(title) {
   let timeStr = timeInfo ? timeInfo.timeStr : "Sắp tới";
   let timeMs = timeInfo ? timeInfo.timeMs : (new Date().getTime() + 24 * 3600 * 1000);
 
-  // NẾU QUÁ 2 TIẾNG -> TRẢ VỀ NULL (BỊ XÓA)
   if (timeInfo) {
     const nowMs = new Date().getTime();
     if ((nowMs - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
@@ -186,7 +178,6 @@ function parseMatchTitle(title) {
   };
 }
 
-/** Xử lý & phân loại M3U */
 function processM3UText(text) {
   if (!text || typeof text !== "string") return { matches: [], others: [] };
 
@@ -217,7 +208,9 @@ function processM3UText(text) {
       }
 
       if (urlIdx >= lines.length) { i = urlIdx; continue; }
-      const url = lines[urlIdx].Blocked) {
+      const url = lines[urlIdx].trim();
+
+      if (!isBlocked) {
         const titleMatch = line.match(/,(.*)$/);
         const title = titleMatch ? titleMatch[1].trim() : "";
         
@@ -226,16 +219,14 @@ function processM3UText(text) {
         if (matchData) {
           matches.push({ extinf: line, url: url, title: title, matchData: matchData });
         } else {
-          // KIỂM TRA THỜI GIAN CHO KÊNH LẺ (Nếu có ngày giờ và quá 2h -> Xóa)
           const timeInfo = extractDateTime(title);
           if (timeInfo) {
              const nowMs = new Date().getTime();
              if ((nowMs - timeInfo.timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
                 i = urlIdx + 1;
-                continue; // Bỏ qua, không thêm vào đâu cả
+                continue;
              }
           }
-          // Chỉ giữ lại Truyền Hình, xóa sạch các kênh khác
           if (/truyen hinh/i.test(standardizeName(originalGroup))) {
              others.push({ extinf: line, url: url, title: title, originalGroup: originalGroup });
           }
@@ -264,13 +255,17 @@ export default async function handler(req, res) {
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
-    // Trích xuất thời gian cập nhật
+    // LỚP BẢO VỆ: Bọc phần trích xuất thời gian trong try/catch
     let updateTime = "";
-    const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{2,4})[^"]*)"/i);
-    if (timeUpdateMatch) {
-        let rawTime = timeUpdateMatch[1].replace(/Updated|Cập nhật|Cap nhat/gi, '').trim();
-        rawTime = rawTime.replace(/\b(\d{2})(\d{2})\b/g, '$1:$2');
-        updateTime = rawTime.replace(/^[:\-\s]+/, ''); 
+    try {
+        const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{2,4})[^"]*)"/i);
+        if (timeUpdateMatch) {
+            let rawTime = timeUpdateMatch[1].replace(/Updated|Cập nhật|Cap nhat/gi, '').trim();
+            rawTime = rawTime.replace(/\b(\d{2})(\d{2})\b/g, '$1:$2');
+            updateTime = rawTime.replace(/^[:\-\s]+/, ''); 
+        }
+    } catch (e) {
+        console.log("Lỗi khi lấy thời gian cập nhật, bỏ qua bước này.");
     }
 
     const resXiaomi = processM3UText(textXiaomi);
