@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL (Đã phục hồi Logo kênh)
+//  M3U Aggregator - FINAL (Đã phục hồi Logo kênh & Giữ icon gốc)
 // ============================================================
 
 const SOURCES = {
@@ -170,7 +170,18 @@ function processM3UText(text) {
                 const attrMatch = line.match(/(tvg-[a-z]+="[^"]*"|tvg-[a-z]+='[^']*')/gi);
                 const attrStr = attrMatch ? attrMatch.join(" ") + " " : "";
 
-                let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
+                // ĐÃ XÓ 
+
+A DÒNG XÓA EMOJI: Gi ữ nguyên các icon gốc (⚽, 🥊... try)
+                let {
+ cleanTitle = title
+                  .replace(/\[   .*?\]/g, ' ')
+                  . constreplace(/\(.*?\)/g, ' ')
+                  .replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ')
+                  .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ')
+                  .replace(/\s+/g, ' ')
+                  .trim();
+                  
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
                 if (vsMatch) {
@@ -222,10 +233,7 @@ function processM3UText(text) {
 // ============================================================
 
 export default async function handler(req, res) {
-  let combined = "#EXTM3U\n"; 
-
-  try {
-    const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
+  let combined = "#EXTM3U\n"; [textXiaomi, textThTT, textXoiChe] = await Promise.all([
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
