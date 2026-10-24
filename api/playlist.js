@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL FIX (Xóa môn khác - Chuẩn hóa không dấu)
+//  M3U Aggregator - FINAL (Đã xóa sạch môn thể thao khác)
 // ============================================================
 
 const SOURCES = {
@@ -13,14 +13,14 @@ const BLOCKED_GROUP_KEYWORDS = [
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
 
-// BỔ SUNG: TẤT CẢ TỪ KHÓA PHẢI VIẾT KHÔNG DẤU VÀ CHỮ THƯỜNG ĐỂ SO SÁNH CHÍNH XÁC
+// BỔ SUNG: Danh sách đen các môn thể thao/game cần xóa
 const NON_FOOTBALL_KEYWORDS = [
   "bong ro", "basketball", "nba", "bong chuyen", "volleyball", 
   "cau long", "badminton", "quyen anh", "boxing", "ufc", "vo thuat", 
   "tennis", "quan vot", "golf", "esports", "game", "cs2", "lol", 
   "lien minh", "dota", "pubg", "f1", "dua xe", "billiards", "bida",
   "pickleball", "baseball", "bong bau duc", "rugby", "cricket", "khuc con cau",
-  "hoosiers", "wolverines", "volkanovski", "evloev", "g2", "navi", "g2 esports"
+  "volkanovski", "mvosar", "evloev", "hoosiers", "wolverines" // Thêm tên VĐV/đội bóng rổ, võ thuật
 ];
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
@@ -89,7 +89,7 @@ const ALIASES = {
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
   "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
-  "atletico": "atleti madrid", "atl madrid": "atletico madrid", "a madrid": "atletico madrid",
+  "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
@@ -163,6 +163,7 @@ function processM3UText(text) {
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
+            // SỬA LỖI: Khai báo biến normTitle để kiểm tra
             const normTitle = standardizeName(title);
             const isNotFootball = NON_FOOTBALL_KEYWORDS.some(kw => normTitle.includes(kw));
 
