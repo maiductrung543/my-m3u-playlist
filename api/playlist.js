@@ -1,6 +1,5 @@
 // ============================================================
-//  M3U Aggregator - ABSOLUTE SAFE VERSION
-//  Cam kết không lỗi 500, giữ nguyên link Xôi Chè, diệt link FLV
+//  M3U Aggregator - FINAL FIX (No more 500 Errors)
 // ============================================================
 
 const SOURCES = {
@@ -20,7 +19,7 @@ const FETCH_TIMEOUT = 8000;
 const EXPIRE_HOURS = 2; 
 
 // ============================================================
-//  Helpers (Đơn giản hóa tối đa)
+//  Helpers
 // ============================================================
 
 async function fetchSafe(url) {
@@ -131,7 +130,6 @@ function processM3UText(text) {
       const line = lines[i].trim();
       
       if (line.startsWith("#EXTINF")) {
-        // BỌC TỪNG KÊNH VÀO TRY/CATCH ĐỂ CHỐNG CRASH
         try {
           let originalGroup = "Kênh Khác";
           let isBlocked = false;
@@ -153,15 +151,14 @@ function processM3UText(text) {
             const titleMatch = line.match(/,(.*)$/);
             const title = titleMatch ? titleMatch[1].trim() : "";
 
-            // 1. CHẶN FLV VÀ KÊNH BỊ BLOCK
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
             if (!isBlocked && !isFlv) {
               const dt = extractDateTime(title);
               let isExpired = false;
 
-              // 2. KIỂM TRA QUÁ HẠN
               if (dt) {
+                // SỬA LỖI TẠI ĐÂY: Khai báo biến now trước khi sử dụng
                 const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
                 const matchDate = new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m);
                 if ((now.getTime() - matchDate.getTime()) / (1000 * 60 * 60) > EXPIRE_HOURS) {
@@ -170,7 +167,6 @@ function processM3UText(text) {
               }
 
               if (!isExpired) {
-                // 3. TÁCH TÊN TRẬN ĐẤU
                 let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
@@ -185,6 +181,7 @@ function processM3UText(text) {
                   const blvMatch = title.match(/\((.*?)\)/);
                   if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
 
+                  const now = new Date();
                   matches.push({ 
                     url: url, 
                     title: title,
@@ -192,7 +189,7 @@ function processM3UText(text) {
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
                     timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
-                    timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (new Date().getTime() + 24 * 3600 * 1000),
+                    timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
                     blvName: blvName
                   });
                 } else {
@@ -206,16 +203,13 @@ function processM3UText(text) {
             continue;
           }
         } catch (err) {
-          // Lỗi ở kênh nào thì bỏ qua kênh đó, chạy tiếp kênh sau
           i++; 
           continue;
         }
       }
       i++;
     }
-  } catch (globalErr) {
-    console.error("Lỗi tổng quát khi đọc M3U:", globalErr);
-  }
+  } catch (globalErr) {}
   return { matches, others };
 }
 
@@ -224,6 +218,9 @@ function processM3UText(text) {
 // ============================================================
 
 export default async function handler(req, res) {
+  // KHỞI TẠO MẢNG RỖNG DỰ PHÒNG TRƯỚC KHI CHẠY
+  let combined = "#EXTM3U\n"; 
+
   try {
     const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
@@ -259,7 +256,6 @@ export default async function handler(req, res) {
         }
         
         if (foundGroup) {
-          // LỌC TRÙNG BẰNG URL
           const isDuplicateUrl = foundGroup.streams.some(s => s.url === ch.url);
           if (!isDuplicateUrl) {
              foundGroup.streams.push(ch);
@@ -295,18 +291,17 @@ export default async function handler(req, res) {
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
-    let combined = "#EXTM3U\n" + parts.join("\n\n");
+    combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
-    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-
-    return res.status(200).send(combined);
-
   } catch (err) {
-    // Nếu có bất kỳ lỗi gì không lường trước, trả về file rỗng hợp lệ để App không báo lỗi mạng
-    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-    return res.status(200).send("#EXTM3U\n");
+    // Nếu sập toàn bộ, gửi lại danh sách cơ bản thay vì lỗi 500
+    combined = "#EXTM3U\n#EXTINF:-1 group-title=\"📺 Truyền Hình\",Lỗi tải danh sách\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm\n";
   }
+
+  // LUÔN TRẢ VỀ STATUS 200
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
+  res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  return res.status(200).send(combined);
 }
