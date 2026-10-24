@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL (Đã xóa sạch môn thể thao khác)
+//  M3U Aggregator - TRUE FOOTBALL ONLY (Chặn tuyệt đối)
 // ============================================================
 
 const SOURCES = {
@@ -8,19 +8,20 @@ const SOURCES = {
   xoiche: "https://tinyurl.com/xoiche1",
 };
 
+// Chặn các nhóm kênh không mong muốn từ đầu
 const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
-  "xoigactv", "colatv", "gavang24htv", "gavang33tv"
+  "xoigactv", "colatv", "gavang24htv", "gavang33tv", 
+  "bong ro", "bong chuyen", "cau long", "esports", "game", "tennis", "golf"
 ];
 
-// BỔ SUNG: Danh sách đen các môn thể thao/game cần xóa
-const NON_FOOTBALL_KEYWORDS = [
-  "bong ro", "basketball", "nba", "bong chuyen", "volleyball", 
-  "cau long", "badminton", "quyen anh", "boxing", "ufc", "vo thuat", 
-  "tennis", "quan vot", "golf", "esports", "game", "cs2", "lol", 
-  "lien minh", "dota", "pubg", "f1", "dua xe", "billiards", "bida",
-  "pickleball", "baseball", "bong bau duc", "rugby", "cricket", "khuc con cau",
-  "volkanovski", "mvosar", "evloev", "hoosiers", "wolverines" // Thêm tên VĐV/đội bóng rổ, võ thuật
+// Regex chặn chính xác nguyên từ (không sợ bị nhầm lẫn)
+const NON_FOOTBALL_REGEX = /\b(f1|esports|e-sports|cs2|csgo|lol|dota|pubg|basketball|nba|volleyball|badminton|tennis|golf|boxing|ufc|mma|billiards|bida|pickleball|baseball|rugby|cricket|bong ro|bong chuyen|cau long|vo thuat|quyen anh|dua xe)\b/i;
+
+// Các đội/giải không phải bóng đá thường xuất hiện
+const NON_FOOTBALL_TEAMS = [
+  "g2", "navi", "indiana hoosiers", "michigan wolverines", 
+  "volkanovski", "mvosar", "evloev", "yfu"
 ];
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
@@ -89,7 +90,7 @@ const ALIASES = {
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
   "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
-  "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
+  "atletico": "atleti madrid", "atl madrid": "atletico madrid", "a madrid": "atletico madrid",
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
@@ -146,7 +147,8 @@ function processM3UText(text) {
           const groupMatch = line.match(/group-title="([^"]*)"/i);
           if (groupMatch) {
             originalGroup = groupMatch[1];
-            isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => standardizeName(originalGroup).replace(/\s+/g, '').includes(kw));
+            const normGroup = standardizeName(originalGroup).replace(/\s+/g, '');
+            isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => normGroup.includes(kw.replace(/\s+/g, '')));
           }
 
           let urlIdx = i + 1;
@@ -163,11 +165,13 @@ function processM3UText(text) {
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
-            // SỬA LỖI: Khai báo biến normTitle để kiểm tra
             const normTitle = standardizeName(title);
-            const isNotFootball = NON_FOOTBALL_KEYWORDS.some(kw => normTitle.includes(kw));
+            
+            // KIỂM TRA CHẶN MÔN KHÁC (Dùng Regex và danh sách đội)
+            const isNotFootballRegex = NON_FOOTBALL_REGEX.test(normTitle);
+            const isNotFootballTeam = NON_FOOTBALL_TEAMS.some(team => normTitle.includes(team));
 
-            if (!isBlocked && !isFlv && !isNotFootball) {
+            if (!isBlocked && !isFlv && !isNotFootballRegex && !isNotFootballTeam) {
               const dt = extractDateTime(title);
               let isExpired = false;
 
