@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - Clean & Deduplicate
+//  M3U Aggregator - Fix Duplicate URLs & FLV Links
 // ============================================================
 
 const SOURCES = {
@@ -49,10 +49,10 @@ function standardizeName(name) {
 
 function levenshtein(a, b) {
   if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
+ [  if (b.length === 0) return a.lengthi;
   const matrix = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for];
+ (let i = 0 ; i <= b.length; i++) for matrix[i] = (let j = 0; j <= a.length; j++) matrix[0][j] = j;
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
@@ -118,8 +118,10 @@ function extractDateTime(title) {
 function parseMatchTitle(title, url) {
   if (!title) return null;
 
-  // 1. LOẠI BỎ LINK FLV
-  if (url.toLowerCase().includes(".flv")) return null;
+  // CHẶN LINK FLV TRIỆT ĐỂ (Chặn cả đuôi .flv và tham số flv)
+  if (url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv")) {
+      return null;
+  }
 
   let dt = extractDateTime(title);
   let timeStr = "Sắp tới";
@@ -157,13 +159,12 @@ function parseMatchTitle(title, url) {
       teamB = teamBWords.slice(0, 2).join(' ');
   }
   
-  // Lấy tên hiển thị của BLV (Phần trong ngoặc)
+  // Lấy tên hiển thị (giữ nguyên tên BLV)
   let blvName = "Live";
   const blvMatch = title.match(/\((.*?)\)/);
   if (blvMatch) {
-      blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim(); // Xóa [hls] nếu có
+      blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim(); 
   } else {
-      // Nếu không có ngoặc, cắt lấy phần sau dấu ]
       blvName = title.replace(/^\[.*?\]\s*/, '').replace(/^[^\w\s]+\s*/, '').trim();
   }
 
@@ -215,8 +216,10 @@ function processM3UText(text) {
           if (matchData) {
             matches.push({ extinf: line, url: url, title: title, matchData: matchData });
           } else {
-            // KIỂM TRA LINK FLV CHO KÊNH LẺ
-            if (url.toLowerCase().includes(".flv")) { i = urlIdx + 1; continue; }
+            // Chặn link flv cho cả kênh lẻ
+            if (url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv")) { 
+                i = urlIdx + 1; continue; 
+            }
 
             const dt = extractDateTime(title);
             if (dt) {
@@ -281,9 +284,9 @@ export default async function handler(req, res) {
         }
         
         if (foundGroup) {
-          // LỌC TRÙNG LẶP: Kiểm tra xem tên BLV này đã có trong nhóm chưa
-          const isDuplicate = foundGroup.streams.some(s => s.matchData.blvName === m.blvName);
-          if (!isDuplicate) {
+          // LỌC TRÙNG LẶP BẰNG ĐƯỜNG DẪN URL (Không lọc theo tên)
+          const isDuplicateUrl = foundGroup.streams.some(s => s.url === ch.url);
+          if (!isDuplicateUrl) {
              foundGroup.streams.push(ch);
           }
           if (m.displayName.length > foundGroup.displayName.length) foundGroup.displayName = m.displayName;
@@ -307,7 +310,7 @@ export default async function handler(req, res) {
       const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
         let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="${groupTitle}"`);
-        // Tên kênh con hiển thị là tên BLV
+        // Trả lại tên kênh hiển thị rõ ràng
         newExtinf = newExtinf.replace(/,(.*)$/, `,${ch.matchData.blvName}`);
         parts.push(`${newExtinf}\n${ch.url}`);
       });
