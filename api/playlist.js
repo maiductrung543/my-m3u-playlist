@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL (Đã phục hồi Logo kênh & Giữ icon gốc)
+//  M3U Aggregator - FINAL (Giữ nguyên Icon gốc của từng trận)
 // ============================================================
 
 const SOURCES = {
@@ -170,13 +170,18 @@ function processM3UText(text) {
                 const attrMatch = line.match(/(tvg-[a-z]+="[^"]*"|tvg-[a-z]+='[^']*')/gi);
                 const attrStr = attrMatch ? attrMatch.join(" ") + " " : "";
 
-                // ĐÃ XÓ 
+                // Lấy icon (Emoji) ở đầu chuỗi (nếu có) để làm icon nhóm
+                let groupIcon = "⚽"; // Mặc định
+                const emojiMatch = title.match(/^([\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}]+)/u);
+                if (emojiMatch) {
+                  groupIcon = emojiMatch[1];
+                }
 
-A DÒNG XÓA EMOJI: Gi ữ nguyên các icon gốc (⚽, 🥊... try)
-                let {
- cleanTitle = title
-                  .replace(/\[   .*?\]/g, ' ')
-                  . constreplace(/\(.*?\)/g, ' ')
+                // LÀM SẠCH CHUỖI (Giữ nguyên icon, xóa ngày giờ)
+                let cleanTitle = title
+                  .replace(/\[.*?\]/g, ' ')
+                  .replace(/\(.*?\)/g, ' ')
+                  .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}]/gu, ' ') // Xóa icon tạm thời để tách đội bóng
                   .replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ')
                   .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ')
                   .replace(/\s+/g, ' ')
@@ -200,6 +205,7 @@ A DÒNG XÓA EMOJI: Gi ữ nguyên các icon gốc (⚽, 🥊... try)
                     url: url, 
                     title: title,
                     attrStr: attrStr, // Lưu thuộc tính
+                    groupIcon: groupIcon, // Lưu icon để dùng cho tên nhóm
                     cleanA: cleanAndAliasTeam(teamA),
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
@@ -233,7 +239,10 @@ A DÒNG XÓA EMOJI: Gi ữ nguyên các icon gốc (⚽, 🥊... try)
 // ============================================================
 
 export default async function handler(req, res) {
-  let combined = "#EXTM3U\n"; [textXiaomi, textThTT, textXoiChe] = await Promise.all([
+  let combined = "#EXTM3U\n"; 
+
+  try {
+    const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
@@ -275,6 +284,7 @@ export default async function handler(req, res) {
         } else {
           groupsList.push({ 
             cleanA: ch.cleanA, cleanB: ch.cleanB, displayName: ch.displayName, 
+            groupIcon: ch.groupIcon, // Lưu icon nhóm
             timeStr: ch.timeStr, timeMs: ch.timeMs, streams: [ch] 
           });
         }
@@ -293,7 +303,8 @@ export default async function handler(req, res) {
     }
 
     for (const group of groupsList) {
-      const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
+      // SỬ DỤNG ICON GỐC CHO TÊN NHÓM
+      const groupTitle = `${group.groupIcon} [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
         // PHỤC HỒI LOGO CHO TRẬN ĐẤU
         let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="${groupTitle}",${ch.blvName}`;
