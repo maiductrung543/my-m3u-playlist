@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - Safe Mode (Chống lỗi 500)
+//  M3U Aggregator - Ultimate Clean (Fix triệt để xóa trận cũ)
 // ============================================================
 
 const SOURCES = {
@@ -83,7 +83,7 @@ const ALIASES = {
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna",
-  "santos fc sp": "santos", "santos sp": "santos", "cs2 pgl masters": "esports", "f1": "f1"
+  "santos fc sp": "santos", "santos sp": "santos"
 };
 
 function cleanAndAliasTeam(rawName) {
@@ -101,17 +101,25 @@ function cleanAndAliasTeam(rawName) {
   return name;
 }
 
-/** Hàm tách thời gian */
+/** 
+ * HÀM ĐỌC NGÀY GIỜ SIÊU LINH HOẠT (Đã fix lỗi eSports/F1)
+ */
 function extractDateTime(title) {
-  let h, m, d, month;
+  // 1. Xóa toàn bộ Emoji/Icon để không ảnh hưởng đến việc đọc giờ
+  let cleanTitle = title.replace(/[\u{1F300}-\u{1F9FF}]/gu, ' ')
+                         .replace(/[\u2600-\u27BF]/g, ' '); // Xóa các icon khác
+
+  let h = -1, m = -1, d = -1, month = -1;
   let found = false;
 
-  let match = title.match(/(\d{1,2})[h:](\d{2})[\s\-]*(\d{1,2})[\/\-](\d{1,2})/i);
+  // Regex 1: Tìm giờ và ngày (VD: 20:00 24/10, 20h00 24-10, 20:0 24/10)
+  let match = cleanTitle.match(/(\d{1,2})[h:](\d{1,2})[\s\-]*(\d{1,2})[\/\-](\d{1,2})/i);
   if (match) {
     h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
     found = true;
   } else {
-    match = title.match(/\b(\d{2})(\d{2})[\s\-]+(\d{1,2})[\/\-](\d{1,2})/i);
+    // Regex 2: Tìm giờ liền không dấu hai chấm (VD: 2000 24/10)
+    match = cleanTitle.match(/\b(\d{2})(\d{2})[\s\-]+(\d{1,2})[\/\-](\d{1,2})/i);
     if (match) {
       h = parseInt(match[1]); m = parseInt(match[2]); d = parseInt(match[3]); month = parseInt(match[4]);
       found = true;
@@ -119,7 +127,8 @@ function extractDateTime(title) {
   }
 
   if (!found) return null;
-  if (h > 23 || m > 59 || d > 31 || month > 12) return null;
+  // Kiểm tra tính hợp lệ (Nếu sai số liệu thì bỏ qua)
+  if (h > 23 || h < 0 || m > 59 || m < 0 || d > 31 || d < 1 || month > 12 || month < 1) return null;
 
   const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
   const matchDate = new Date(now.getFullYear(), month - 1, d, h, m);
@@ -131,6 +140,9 @@ function extractDateTime(title) {
   };
 }
 
+/** 
+ * Hàm bóc tách cấu trúc trận đấu
+ */
 function parseMatchTitle(title) {
   if (!title) return null;
 
@@ -138,18 +150,20 @@ function parseMatchTitle(title) {
   let timeStr = timeInfo ? timeInfo.timeStr : "Sắp tới";
   let timeMs = timeInfo ? timeInfo.timeMs : (new Date().getTime() + 24 * 3600 * 1000);
 
+  // KIỂM TRA HẠN SỬ DỤNG: Nếu có ngày giờ và quá 2 tiếng -> Xóa
   if (timeInfo) {
     const nowMs = new Date().getTime();
     if ((nowMs - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
-      return null;
+      return null; // Trả về null để hệ thống xóa kênh này
     }
   }
 
+  // Làm sạch chuỗi để tìm tên đội
   let cleanTitle = title
     .replace(/\[.*?\]/g, ' ') 
     .replace(/\(.*?\)/g, ' ') 
     .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') 
-    .replace(/\b\d{1,2}[h:]?\d{2}\b/gi, ' ') 
+    .replace(/\b\d{1,2}[h:]?\d{1,2}\b/gi, ' ') 
     .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ') 
     .replace(/\|.*/g, ' ') 
     .replace(/\s+/g, ' ') 
@@ -178,6 +192,7 @@ function parseMatchTitle(title) {
   };
 }
 
+/** Xử lý & phân loại M3U */
 function processM3UText(text) {
   if (!text || typeof text !== "string") return { matches: [], others: [] };
 
@@ -219,14 +234,16 @@ function processM3UText(text) {
         if (matchData) {
           matches.push({ extinf: line, url: url, title: title, matchData: matchData });
         } else {
+          // Nếu không phải trận đấu, kiểm tra xem có phải kênh cũ không
           const timeInfo = extractDateTime(title);
           if (timeInfo) {
              const nowMs = new Date().getTime();
              if ((nowMs - timeInfo.timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
                 i = urlIdx + 1;
-                continue;
+                continue; // Đã quá 2 tiếng -> Xóa luôn, không thêm vào đâu cả
              }
           }
+          // Chỉ giữ lại Truyền Hình
           if (/truyen hinh/i.test(standardizeName(originalGroup))) {
              others.push({ extinf: line, url: url, title: title, originalGroup: originalGroup });
           }
@@ -255,7 +272,6 @@ export default async function handler(req, res) {
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
-    // LỚP BẢO VỆ: Bọc phần trích xuất thời gian trong try/catch
     let updateTime = "";
     try {
         const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{2,4})[^"]*)"/i);
@@ -264,9 +280,7 @@ export default async function handler(req, res) {
             rawTime = rawTime.replace(/\b(\d{2})(\d{2})\b/g, '$1:$2');
             updateTime = rawTime.replace(/^[:\-\s]+/, ''); 
         }
-    } catch (e) {
-        console.log("Lỗi khi lấy thời gian cập nhật, bỏ qua bước này.");
-    }
+    } catch (e) {}
 
     const resXiaomi = processM3UText(textXiaomi);
     const resThTT = processM3UText(textThTT);
