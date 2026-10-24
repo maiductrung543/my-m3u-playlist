@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL (Fix Icon gốc & Gộp nhóm triệt để)
+//  M3U Aggregator - FINAL (Lấy chính xác Icon gốc từ nguồn)
 // ============================================================
 
 const SOURCES = {
@@ -166,21 +166,20 @@ function processM3UText(text) {
               }
 
               if (!isExpired) {
-                // LẤY CÁC THẺ THUỘC TÍNH GỐC (tvg-logo, tvg-id...) ĐỂ GIỮ LOGO
                 const attrMatch = line.match(/(tvg-[a-z]+="[^"]*"|tvg-[a-z]+='[^']*')/gi);
                 const attrStr = attrMatch ? attrMatch.join(" ") + " " : "";
 
-                // BẮT ICON GỐC (Emoji) NẰM NGAY TRƯỚC TÊN TRẬN
-                let groupIcon = "⚽"; // Mặc định
+                // BẮT CHÍNH XÁC ICON GỐC TỪ NGUỒN
+                let groupIcon = "⚽"; // Mặc định nếu không tìm thấy
                 const emojiMatch = title.match(/([\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}])/u);
                 if (emojiMatch) {
-                  groupIcon = emojiMatch[1];
+                  groupIcon = emojiMatch[1]; // Lấy icon đầu tiên tìm thấy
                 }
 
                 let cleanTitle = title
                   .replace(/\[.*?\]/g, ' ')
                   .replace(/\(.*?\)/g, ' ')
-                  .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}]/gu, ' ') // Xóa icon tạm thời để tách đội
+                  .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}]/gu, ' ') 
                   .replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ')
                   .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ')
                   .replace(/\s+/g, ' ')
@@ -192,14 +191,9 @@ function processM3UText(text) {
                   let teamA = vsMatch[1].trim();
                   let teamB = vsMatch[2].trim();
                   
-                  // CẮT TỈA TÊN ĐỘI BÓNG (Nếu > 2 từ thì chỉ lấy 2 từ đầu)
-                  if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
-                      teamB = teamB.split(' ').slice(0, 2).join(' ');
-                  }
-                  // Cắt tỉa luôn đội A nếu bị dính chữ rác
-                  if (teamA.split(' ').length > 3) {
-                      teamA = teamA.split(' ').slice(0, 3).join(' '); // Giữ 3 từ cho các đội tên dài
-                  }
+                  // Cắt tỉa tên đội để gộp nhóm
+                  if (teamA.split(' ').length > 2) teamA = teamA.split(' ').slice(0, 2).join(' ');
+                  if (teamB.split(' ').length > 2) teamB = teamB.split(' ').slice(0, 2).join(' ');
 
                   let blvName = "Live";
                   const blvMatch = title.match(/\((.*?)\)/);
@@ -210,7 +204,7 @@ function processM3UText(text) {
                     url: url, 
                     title: title,
                     attrStr: attrStr,
-                    groupIcon: groupIcon, // Lưu icon gốc
+                    groupIcon: groupIcon, 
                     cleanA: cleanAndAliasTeam(teamA),
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
@@ -289,7 +283,7 @@ export default async function handler(req, res) {
         } else {
           groupsList.push({ 
             cleanA: ch.cleanA, cleanB: ch.cleanB, displayName: ch.displayName, 
-            groupIcon: ch.groupIcon, // Gán icon cho nhóm
+            groupIcon: ch.groupIcon, 
             timeStr: ch.timeStr, timeMs: ch.timeMs, streams: [ch] 
           });
         }
@@ -301,17 +295,15 @@ export default async function handler(req, res) {
 
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
-        // PHỤC HỒI LOGO CHO TRUYỀN HÌNH
         let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="📺 Truyền Hình",${ch.title}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
 
     for (const group of groupsList) {
-      // SỬ DỤNG ICON GỐC ĐỂ ĐẶT TÊN NHÓM
+      // GẮN ĐÚNG ICON GỐC VÀO TÊN NHÓM
       const groupTitle = `${group.groupIcon} [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
-        // PHỤC HỒI LOGO CHO TRẬN ĐẤU
         let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="${groupTitle}",${ch.blvName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
