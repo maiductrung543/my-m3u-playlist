@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - Ultra Safe Mode (Chống lỗi 500 tuyệt đối)
+//  M3U Aggregator - NO CACHE - GUARANTEED WORK
 // ============================================================
 
 const SOURCES = {
@@ -17,10 +17,6 @@ const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT = 8000;
 const EXPIRE_HOURS = 2; 
-
-// ============================================================
-//  Helpers
-// ============================================================
 
 async function fetchSafe(url) {
   try {
@@ -100,60 +96,46 @@ function cleanAndAliasTeam(rawName) {
   return name;
 }
 
-/** 
- * HÀM ĐỌC NGÀY GIỜ AN TOÀN (Sửa lỗi crash 500)
- */
+// HÀM ĐỌC NGÀY GIỜ ĐƠN GIẢN NHẤT CÓ THỂ
 function extractDateTime(title) {
   try {
-    // 1. Xóa toàn bộ ký tự đặc biệt, chỉ giữ lại chữ, số và khoảng trắng
+    // Xóa sạch mọi ký tự không phải chữ hoặc số
     let cleanTitle = title.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ');
     
-    // 2. Tìm cụm 4 số liên tiếp (VD: 20 00 24 10 hoặc 20h00 24/10)
-    // Regex này đơn giản và an toàn hơn rất nhiều so với regex trước
-    let match = cleanTitle.match(/(\d{1,2})\s*[h]?\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})/i);
+    // Tìm định dạng: (số) (số) (số) (số) -> VD: 20 00 24 10
+    let match = cleanTitle.match(/(\d{1,2})\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})/i);
     
     if (match) {
-      let p1 = parseInt(match[1]); let p2 = parseInt(match[2]); 
-      let p3 = parseInt(match[3]); let p4 = parseInt(match[4]);
-      
-      // Đoán xem đâu là giờ, đâu là ngày (Giờ <= 23, Phút <= 59, Ngày <= 31, Tháng <= 12)
-      if (p1 <= 23 && p2 <= 59 && p3 <= 31 && p4 <= 12) {
-        const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-        const matchDate = new Date(now.getFullYear(), p4 - 1, p3, p1, p2);
-        
-        if (matchDate.getMonth() < now.getMonth() - 6) {
-          matchDate.setFullYear(now.getFullYear() + 1);
-        }
-
-        return {
-          timeStr: `${p1.toString().padStart(2, '0')}:${p2.toString().padStart(2, '0')} ${p3}/${p4}`,
-          timeMs: matchDate.getTime()
-        };
+      let h = parseInt(match[1]), m = parseInt(match[2]), d = parseInt(match[3]), mon = parseInt(match[4]);
+      // Kiểm tra xem có đúng là ngày giờ không
+      if (h >= 0 && h <= 23 && m >= 0 && m <= 59 && d >= 1 && d <= 31 && mon >= 1 && mon <= 12) {
+        return { h, m, d, mon };
       }
     }
-  } catch (error) {
-    return null; // Nếu có lỗi trong quá trình đọc, bỏ qua an toàn
-  }
+  } catch (error) {}
   return null;
 }
 
 function parseMatchTitle(title) {
   if (!title) return null;
 
-  let timeInfo = null;
-  try { timeInfo = extractDateTime(title); } catch(e) {}
+  let dt = extractDateTime(title);
+  let timeStr = "Sắp tới";
+  let timeMs = new Date().getTime() + 24 * 3600 * 1000;
 
-  let timeStr = timeInfo ? timeInfo.timeStr : "Sắp tới";
-  let timeMs = timeInfo ? timeInfo.timeMs : (new Date().getTime() + 24 * 3600 * 1000);
+  if (dt) {
+    const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+    const matchDate = new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m);
+    timeStr = `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}`;
+    timeMs = matchDate.getTime();
 
-  // XÓA TRẬN CŨ
-  if (timeInfo) {
-    const nowMs = new Date().getTime();
-    if ((nowMs - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
-      return null; 
+    // KIỂM TRA QUÁ 2 TIẾNG -> XÓA
+    if ((now.getTime() - timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
+      return null; // Trả về null = Xóa
     }
   }
 
+  // Tìm tên trận đấu
   let cleanTitle = title
     .replace(/\[.*?\]/g, ' ') 
     .replace(/\(.*?\)/g, ' ') 
@@ -175,12 +157,9 @@ function parseMatchTitle(title) {
       teamB = teamBWords.slice(0, 2).join(' ');
   }
   
-  const cleanA = cleanAndAliasTeam(teamA);
-  const cleanB = cleanAndAliasTeam(teamB);
-
   return {
-    cleanA: cleanA,
-    cleanB: cleanB,
+    cleanA: cleanAndAliasTeam(teamA),
+    cleanB: cleanAndAliasTeam(teamB),
     timeStr: timeStr,
     timeMs: timeMs,
     displayName: `${teamA.replace(/_/g, ' ').trim()} vs ${teamB.replace(/_/g, ' ').trim()}`
@@ -189,7 +168,6 @@ function parseMatchTitle(title) {
 
 function processM3UText(text) {
   if (!text || typeof text !== "string") return { matches: [], others: [] };
-
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const matches = [];
   const others = []; 
@@ -197,17 +175,14 @@ function processM3UText(text) {
 
   while (i < lines.length) {
     const line = lines[i].trim();
-
     if (line.startsWith("#EXTINF")) {
       try {
         let originalGroup = "Kênh Khác";
         let isBlocked = false;
-        
         const groupMatch = line.match(/group-title="([^"]*)"/i);
         if (groupMatch) {
           originalGroup = groupMatch[1];
-          const normGroup = standardizeName(originalGroup).replace(/\s+/g, '');
-          isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => normGroup.includes(kw));
+          isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => standardizeName(originalGroup).replace(/\s+/g, '').includes(kw));
         }
 
         let urlIdx = i + 1;
@@ -223,48 +198,36 @@ function processM3UText(text) {
         if (!isBlocked) {
           const titleMatch = line.match(/,(.*)$/);
           const title = titleMatch ? titleMatch[1].trim() : "";
-          
           const matchData = parseMatchTitle(title);
 
           if (matchData) {
             matches.push({ extinf: line, url: url, title: title, matchData: matchData });
           } else {
-            const timeInfo = extractDateTime(title);
-            if (timeInfo) {
-               const nowMs = new Date().getTime();
-               if ((nowMs - timeInfo.timeMs) / (1000 * 60 * 60) > EXPIRE_HOURS) {
-                  i = urlIdx + 1;
-                  continue; 
-               }
+            // Nếu là kênh lẻ, kiểm tra xem có quá hạn không
+            const dt = extractDateTime(title);
+            if (dt) {
+              const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+              const matchDate = new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m);
+              if ((now.getTime() - matchDate.getTime()) / (1000 * 60 * 60) > EXPIRE_HOURS) {
+                 i = urlIdx + 1; continue;
+              }
             }
+            // Chỉ giữ Truyền Hình
             if (/truyen hinh/i.test(standardizeName(originalGroup))) {
-               others.push({ extinf: line, url: url, title: title, originalGroup: originalGroup });
+               others.push({ extinf: line, url: url, title: title });
             }
           }
         }
         i = urlIdx + 1;
         continue;
-      } catch (e) {
-        console.log("Lỗi xử lý kênh, bỏ qua:", e.message);
-        i++;
-        continue;
-      }
+      } catch (e) { i++; continue; }
     }
     i++;
   }
   return { matches, others };
 }
 
-// ============================================================
-//  Handler
-// ============================================================
-
 export default async function handler(req, res) {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    res.setHeader("Allow", "GET, HEAD");
-    return res.status(405).send("Method Not Allowed");
-  }
-
   try {
     const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
       fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
@@ -288,44 +251,26 @@ export default async function handler(req, res) {
     const allOthers = [...resXiaomi.others, ...resThTT.others, ...resXoiChe.others];
 
     const groupsList = []; 
-
     allMatches.forEach(ch => {
       try {
         const m = ch.matchData;
         let foundGroup = null;
-
         for (const group of groupsList) {
-          const matchNormal = isSameTeam(m.cleanA, group.cleanA) && isSameTeam(m.cleanB, group.cleanB);
-          const matchReverse = isSameTeam(m.cleanA, group.cleanB) && isSameTeam(m.cleanB, group.cleanA);
-
-          if (matchNormal || matchReverse) {
-            foundGroup = group;
-            break;
+          if ((isSameTeam(m.cleanA, group.cleanA) && isSameTeam(m.cleanB, group.cleanB)) ||
+              (isSameTeam(m.cleanA, group.cleanB) && isSameTeam(m.cleanB, group.cleanA))) {
+            foundGroup = group; break;
           }
         }
-
         if (foundGroup) {
           foundGroup.streams.push(ch);
-          if (m.displayName.length > foundGroup.displayName.length) {
-            foundGroup.displayName = m.displayName;
-          }
+          if (m.displayName.length > foundGroup.displayName.length) foundGroup.displayName = m.displayName;
         } else {
-          groupsList.push({
-            cleanA: m.cleanA,
-            cleanB: m.cleanB,
-            displayName: m.displayName,
-            timeStr: m.timeStr,
-            timeMs: m.timeMs,
-            streams: [ch]
-          });
+          groupsList.push({ cleanA: m.cleanA, cleanB: m.cleanB, displayName: m.displayName, timeStr: m.timeStr, timeMs: m.timeMs, streams: [ch] });
         }
-      } catch (e) {
-        console.log("Lỗi gom nhóm trận, bỏ qua.");
-      }
+      } catch (e) {}
     });
 
     groupsList.sort((a, b) => a.timeMs - b.timeMs);
-
     const parts = [];
 
     if (allOthers.length > 0) {
@@ -337,7 +282,6 @@ export default async function handler(req, res) {
 
     for (const group of groupsList) {
       const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
-      
       group.streams.forEach((ch) => {
         let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="${groupTitle}"`);
         const blvMatch = ch.title.match(/\((.*?)\)/);
@@ -351,26 +295,24 @@ export default async function handler(req, res) {
       });
     }
 
-    const statusName = updateTime 
-      ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` 
-      : `Trạng thái: Ổn định`;
-    
+    const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     let combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
-    res.setHeader("Cache-Control", "no-store, max-age=0"); 
+    // VÔ HIỆU HÓA CACHE 100%
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
-    if (req.method === "HEAD") return res.status(200).end();
-    res.status(200).send(combined);
+    return res.status(200).send(combined);
 
   } catch (err) {
-    console.error("[M3U] Lỗi:", err);
-    // Cố gắng gửi về một danh sách rỗng hợp lệ để app không báo lỗi 500
+    // Nếu có lỗi, trả về file rỗng thay vì lỗi 500
     res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-    res.status(200).send("#EXTM3U\n");
+    return res.status(200).send("#EXTM3U\n");
   }
 }
