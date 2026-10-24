@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - ULTIMATE FINAL (Logo + Fix V-League + Fix Giải Đấu)
+//  M3U Aggregator - FINAL (Đã phục hồi Logo kênh)
 // ============================================================
 
 const SOURCES = {
@@ -82,28 +82,13 @@ const ALIASES = {
   "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
-  "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna",
-  // Chuẩn hóa tên V-League
-  "cahn": "cong an ha noi", "cong an": "cong an ha noi", "ha noi fc": "ha noi",
-  "hagl": "hoang anh gia lai", "hagl fc": "hoang anh gia lai",
-  "binh duong": "becamex binh duong", "b.binh duong": "becamex binh duong",
-  "viettel": "the cong viettel", "the cong": "the cong viettel",
-  "thanh hoa": "dong a thanh hoa", "slna": "song lam nghe an", "nghe an": "song lam nghe an",
-  "hpn": "hai phong", "hai phong fc": "hai phong",
-  "nam dinh": "thep xanh nam dinh", "tn nam dinh": "thep xanh nam dinh",
-  "quang nam": "quang nam fc", "da nang": "shb da nang", "shb da nang": "shb da nang"
+  "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
 };
-
-// TỪ KHÓA GIẢI ĐẤU CẦN XÓA (Để không bị nhầm thành tên đội)
-const LEAGUE_KEYWORDS = /\b(a league|a-league|men|women|ngoai hang|ngoại hạng|cup c1|c1|champions league|europa league|v league|v-league|v league 1|v league 2|cup quoc gia|afc cup|aff cup|sea games|u19|u20|u21|u23|giao huu|friendly)\b/gi;
 
 function cleanAndAliasTeam(rawName) {
   let name = standardizeName(rawName);
-  
-  // XÓA TÊN GIẢI ĐẤU
-  name = name.replace(LEAGUE_KEYWORDS, ' ');
-  
-  name = name.replace(/\b(fc|cf|sc|ac|club|calcio|sporting|cd|sco)\b/g, ' ')
+  name = name.replace(/\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g, ' ');
+  name = name.replace(/\b(fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g, ' ')
              .replace(/\s+/g, ' ').trim();
 
   Object.keys(ALIASES).forEach(k => {
@@ -181,30 +166,16 @@ function processM3UText(text) {
               }
 
               if (!isExpired) {
+                // LẤY CÁC THẺ THUỘC TÍNH GỐC (tvg-logo, tvg-id...) ĐỂ GIỮ LOGO
                 const attrMatch = line.match(/(tvg-[a-z]+="[^"]*"|tvg-[a-z]+='[^']*')/gi);
                 const attrStr = attrMatch ? attrMatch.join(" ") + " " : "";
 
-                let cleanTitle = title
-                  .replace(/\[.*?\]/g, ' ')
-                  .replace(/\(.*?\)/g, ' ')
-                  .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
-                  .replace(/^\s*\/\s*/, '') // XÓA DẤU / Ở ĐẦU
-                  .replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ')
-                  .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ')
-                  .replace(/\|.*/g, ' ')
-                  .replace(/^\s*\/\s*/, '') // XÓA DẤU / LẦN 2
-                  .replace(/\s+/g, ' ')
-                  .trim();
-
+                let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
                 if (vsMatch) {
                   let teamA = vsMatch[1].trim();
                   let teamB = vsMatch[2].trim();
-                  
-                  // XỬ LÝ ĐẶC BIỆT: NẾU ĐỘI B CÓ CHỨA TỪ KHÓA GIẢI ĐẤU, CẮT BỎ
-                  teamB = teamB.replace(LEAGUE_KEYWORDS, ' ').replace(/\s+/g, ' ').trim();
-                  
                   if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
                       teamB = teamB.split(' ').slice(0, 2).join(' ');
                   }
@@ -214,17 +185,14 @@ function processM3UText(text) {
                   if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
 
                   const now = new Date();
-                  const hStr = dt ? dt.h.toString().padStart(2, '0') : "00";
-                  const mStr = dt ? dt.m.toString().padStart(2, '0') : "00";
-
                   matches.push({ 
                     url: url, 
                     title: title,
-                    attrStr: attrStr,
+                    attrStr: attrStr, // Lưu thuộc tính
                     cleanA: cleanAndAliasTeam(teamA),
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
-                    timeStr: dt ? `${hStr}:${mStr} ${dt.d}/${dt.mon}` : "Sắp tới",
+                    timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
                     timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
                     blvName: blvName
                   });
@@ -310,6 +278,7 @@ export default async function handler(req, res) {
 
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
+        // PHỤC HỒI LOGO CHO TRUYỀN HÌNH
         let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="📺 Truyền Hình",${ch.title}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
@@ -318,12 +287,14 @@ export default async function handler(req, res) {
     for (const group of groupsList) {
       const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
+        // PHỤC HỒI LOGO CHO TRẬN ĐẤU
         let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="${groupTitle}",${ch.blvName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
 
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
+    // Gán logo mặc định cho kênh trạng thái
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     combined = "#EXTM3U\n" + parts.join("\n\n");
