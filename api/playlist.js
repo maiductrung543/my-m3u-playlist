@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - TRUE FOOTBALL ONLY (Chặn tuyệt đối)
+//  M3U Aggregator - FINAL (Đã phục hồi Logo kênh)
 // ============================================================
 
 const SOURCES = {
@@ -8,20 +8,9 @@ const SOURCES = {
   xoiche: "https://tinyurl.com/xoiche1",
 };
 
-// Chặn các nhóm kênh không mong muốn từ đầu
 const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
-  "xoigactv", "colatv", "gavang24htv", "gavang33tv", 
-  "bong ro", "bong chuyen", "cau long", "esports", "game", "tennis", "golf"
-];
-
-// Regex chặn chính xác nguyên từ (không sợ bị nhầm lẫn)
-const NON_FOOTBALL_REGEX = /\b(f1|esports|e-sports|cs2|csgo|lol|dota|pubg|basketball|nba|volleyball|badminton|tennis|golf|boxing|ufc|mma|billiards|bida|pickleball|baseball|rugby|cricket|bong ro|bong chuyen|cau long|vo thuat|quyen anh|dua xe)\b/i;
-
-// Các đội/giải không phải bóng đá thường xuất hiện
-const NON_FOOTBALL_TEAMS = [
-  "g2", "navi", "indiana hoosiers", "michigan wolverines", 
-  "volkanovski", "mvosar", "evloev", "yfu"
+  "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
@@ -90,7 +79,7 @@ const ALIASES = {
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
   "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
-  "atletico": "atleti madrid", "atl madrid": "atletico madrid", "a madrid": "atletico madrid",
+  "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
@@ -147,8 +136,7 @@ function processM3UText(text) {
           const groupMatch = line.match(/group-title="([^"]*)"/i);
           if (groupMatch) {
             originalGroup = groupMatch[1];
-            const normGroup = standardizeName(originalGroup).replace(/\s+/g, '');
-            isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => normGroup.includes(kw.replace(/\s+/g, '')));
+            isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => standardizeName(originalGroup).replace(/\s+/g, '').includes(kw));
           }
 
           let urlIdx = i + 1;
@@ -165,13 +153,7 @@ function processM3UText(text) {
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
-            const normTitle = standardizeName(title);
-            
-            // KIỂM TRA CHẶN MÔN KHÁC (Dùng Regex và danh sách đội)
-            const isNotFootballRegex = NON_FOOTBALL_REGEX.test(normTitle);
-            const isNotFootballTeam = NON_FOOTBALL_TEAMS.some(team => normTitle.includes(team));
-
-            if (!isBlocked && !isFlv && !isNotFootballRegex && !isNotFootballTeam) {
+            if (!isBlocked && !isFlv) {
               const dt = extractDateTime(title);
               let isExpired = false;
 
@@ -184,6 +166,10 @@ function processM3UText(text) {
               }
 
               if (!isExpired) {
+                // LẤY CÁC THẺ THUỘC TÍNH GỐC (tvg-logo, tvg-id...) ĐỂ GIỮ LOGO
+                const attrMatch = line.match(/(tvg-[a-z]+="[^"]*"|tvg-[a-z]+='[^']*')/gi);
+                const attrStr = attrMatch ? attrMatch.join(" ") + " " : "";
+
                 let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
@@ -202,6 +188,7 @@ function processM3UText(text) {
                   matches.push({ 
                     url: url, 
                     title: title,
+                    attrStr: attrStr, // Lưu thuộc tính
                     cleanA: cleanAndAliasTeam(teamA),
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
@@ -211,7 +198,7 @@ function processM3UText(text) {
                   });
                 } else {
                   if (/truyen hinh/i.test(standardizeName(originalGroup))) {
-                     others.push({ url: url, title: title });
+                     others.push({ url: url, title: title, attrStr: attrStr });
                   }
                 }
               }
@@ -291,7 +278,8 @@ export default async function handler(req, res) {
 
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
-        let newExtinf = `#EXTINF:-1 group-title="📺 Truyền Hình",${ch.title}`;
+        // PHỤC HỒI LOGO CHO TRUYỀN HÌNH
+        let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="📺 Truyền Hình",${ch.title}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
@@ -299,13 +287,15 @@ export default async function handler(req, res) {
     for (const group of groupsList) {
       const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
-        let newExtinf = `#EXTINF:-1 group-title="${groupTitle}",${ch.blvName}`;
+        // PHỤC HỒI LOGO CHO TRẬN ĐẤU
+        let newExtinf = `#EXTINF:-1 ${ch.attrStr}group-title="${groupTitle}",${ch.blvName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
 
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
-    parts.push(`#EXTINF:-1 group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
+    // Gán logo mặc định cho kênh trạng thái
+    parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
