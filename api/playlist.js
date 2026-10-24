@@ -1,10 +1,11 @@
 // ============================================================
 //  M3U Aggregator - Vercel Serverless Function (SMART GROUPING & AUTO-CLEAN)
-//  Nguồn: Xôi Chè + THTT (Bỏ qua Xiaomi)
-//  Tính năng: Gom nhóm theo Trận Đấu, tự động xóa trận cũ quá 2 tiếng.
+//  Nguồn: Xiaomi (Truyền hình) + Xôi Chè + THTT
+//  Tính năng: Gom nhóm theo Trận Đấu (Chống lệch tên), giữ nguyên nhóm Truyền Hình, tự động xóa trận cũ quá 2 tiếng.
 // ============================================================
 
 const SOURCES = {
+  xiaomi: "https://tinyurl.com/vietxiaomi", // Lấy lại nhóm Truyền Hình
   thtt:   "https://thtt.pages.dev/tttt.m3u",
   xoiche: "https://tinyurl.com/xoiche1",
 };
@@ -17,7 +18,21 @@ const BLOCKED_GROUP_KEYWORDS = [
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT = 8000;
-const EXPIRE_HOURS = 2; // Số giờ tối đa để giữ trận đấu
+const EXPIRE_HOURS = 2; 
+
+// ============================================================
+//  TỪ ĐIỂN RÚT GỌN TÊN ĐỘI BÓNG (Giúp gom nhóm chính xác)
+// ============================================================
+const TEAM_ALIASES = {
+  "man city": "manchester city", "man utd": "manchester united", "man united": "manchester united",
+  "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
+  "west ham utd": "west ham", "brighton hove": "brighton", "nottm forest": "nottingham forest",
+  "sheffield utd": "sheffield united", "psg": "paris saint germain", "bayern munich": "bayern munchen",
+  "dortmund": "borussia dortmund", "monchengladbach": "gladbach", "leipzig": "rb leipzig",
+  "inter milan": "inter", "ac milan": "milan", "juve": "juventus", "roma": "as roma",
+  "atletico madrid": "atletico", "athletic bilbao": "athletic club", "real betis": "betis",
+  "sociedad": "real sociedad", "villarreal": "villarreal cf", "vallecano": "rayo vallecano"
+};
 
 // ============================================================
 //  Helpers
@@ -52,13 +67,10 @@ async function fetchSafe(url) {
 
 /** 
  * Hàm bóc tách tên trận đấu VÀ kiểm tra hạn sử dụng
- * Ví dụ: "[18:30 - 24/10] Aston Villa VS Manchester City (BLV Xôi Xoài)"
- * Trả về: { displayName: "...", normalized: "...", isExpired: true/false }
  */
 function extractMatchInfo(title) {
   if (!title) return null;
   
-  // Regex bắt phần [Ngày - Giờ] và Tên Trận
   const match = title.match(/^(\[.*?\]\s*.*?)\s*\(/);
   if (!match) return null;
 
@@ -70,23 +82,25 @@ function extractMatchInfo(title) {
     matchName = bracketMatch[1];
   }
 
+  // Chuẩn hóa tên trận: chữ thường, xóa khoảng trắng, đưa về "vs"
   let normalized = matchName.toLowerCase().replace(/\s+/g, ' ').trim();
   normalized = normalized.replace(/\s+(v|vs|versus|-)\s+/g, ' vs ');
+  
+  // Áp dụng từ điển rút gọn tên đội bóng (Fuzzy match)
+  Object.keys(TEAM_ALIASES).forEach(alias => {
+    const regex = new RegExp(`\\b${alias}\\b`, 'g');
+    normalized = normalized.replace(regex, TEAM_ALIASES[alias]);
+  });
 
-  // --- LOGIC KIỂM TRA THỜI GIAN ---
+  // --- LOGIC KIỂM TRA THỜI GIAN (Quá 2 tiếng thì xóa) ---
   let isExpired = false;
   try {
-    // Lấy giờ Việt Nam (UTC+7)
     const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    
-    // Trích xuất ngày và giờ từ tên (VD: [18:30 - 24/10])
-    // Tìm cụm dạng "HH:mm - DD/MM" hoặc "DD/MM - HH:mm" hoặc chỉ "HH:mm"
     const timeMatch = displayName.match(/(?:\[)?(\d{1,2})[:h](\d{2}).*?(\d{1,2})[\/\-](\d{1,2})/i) || 
                       displayName.match(/(?:\[)?(\d{1,2})[\/\-](\d{1,2}).*?(\d{1,2})[:h](\d{2})/i);
     
     if (timeMatch) {
       let h, m, d, month;
-      // Kiểm tra xem giờ đứng trước hay ngày đứng trước
       if (timeMatch[0].indexOf(':') < timeMatch[0].indexOf('/') || timeMatch[0].indexOf(':') < timeMatch[0].indexOf('-')) {
         h = parseInt(timeMatch[1]); m = parseInt(timeMatch[2]);
         d = parseInt(timeMatch[3]); month = parseInt(timeMatch[4]);
@@ -94,40 +108,24 @@ function extractMatchInfo(title) {
         d = parseInt(timeMatch[1]); month = parseInt(timeMatch[2]);
         h = parseInt(timeMatch[3]); m = parseInt(timeMatch[4]);
       }
-
-      // Tạo đối tượng Date cho trận đấu (dựa trên năm hiện tại)
       const matchDate = new Date(now.getFullYear(), month - 1, d, h, m);
-      
-      // Nếu trận đấu ở tương lai xa (VD: tháng 12 năm nay lấy giờ tháng 1), xử lý qua năm sau
       if (matchDate.getMonth() < now.getMonth() - 6) matchDate.setFullYear(now.getFullYear() + 1);
       
-      // Tính khoảng cách thời gian (mili-giây)
       const diffMs = now - matchDate;
-      const diffHours = diffMs / (1000 * 60 * 60);
-
-      // Nếu trận đấu đã diễn ra quá EXPIRE_HOURS tiếng -> Xóa
-      if (diffHours > EXPIRE_HOURS) {
-        isExpired = true;
-      }
+      if (diffMs / (1000 * 60 * 60) > EXPIRE_HOURS) isExpired = true;
     }
-  } catch (e) {
-    // Bỏ qua lỗi parse thời gian, coi như không hết hạn
-    console.error("Lỗi parse thời gian:", e);
-  }
+  } catch (e) { }
 
-  return {
-    displayName: displayName,
-    normalized: normalized,
-    isExpired: isExpired
-  };
+  return { displayName, normalized, isExpired };
 }
 
 /** Xử lý & lọc nội dung M3U */
 function processM3UText(text) {
-  if (!text || typeof text !== "string") return [];
+  if (!text || typeof text !== "string") return { matches: [], others: [] };
 
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  const channels = [];
+  const matches = [];
+  const others = []; // Chứa các kênh không phải bóng đá (Truyền hình...)
   let i = 0;
 
   while (i < lines.length) {
@@ -141,9 +139,12 @@ function processM3UText(text) {
 
     if (line.startsWith("#EXTINF")) {
       let isBlocked = false;
+      let originalGroup = "Kênh Khác";
+      
       const groupMatch = line.match(/group-title="([^"]*)"/i);
       if (groupMatch) {
-        const normGroup = normalizeStr(groupMatch[1]);
+        originalGroup = groupMatch[1]; // Lưu lại tên nhóm gốc (VD: Truyền Hình)
+        const normGroup = normalizeStr(originalGroup);
         isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => normGroup.includes(kw));
       }
 
@@ -163,25 +164,26 @@ function processM3UText(text) {
         
         const matchInfo = extractMatchInfo(title);
 
-        // Nếu là kênh bóng đá và đã quá 2 tiếng -> Không thêm vào danh sách
+        // Nếu là bóng đá và quá hạn -> Bỏ qua
         if (matchInfo && matchInfo.isExpired) {
           i = urlIdx + 1;
           continue; 
         }
 
-        channels.push({
-          extinf: line,
-          url: url,
-          title: title,
-          matchInfo: matchInfo 
-        });
+        const channelData = { extinf: line, url: url, title: title, originalGroup: originalGroup, matchInfo: matchInfo };
+
+        if (matchInfo) {
+           matches.push(channelData); // Đưa vào danh sách trận đấu
+        } else {
+           others.push(channelData); // Đưa vào danh sách truyền hình
+        }
       }
       i = urlIdx + 1;
       continue;
     }
     i++;
   }
-  return channels;
+  return { matches, others };
 }
 
 // ============================================================
@@ -195,32 +197,31 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [textThTT, textXoiChe] = await Promise.all([
+    const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
+      fetchSafe(SOURCES.xiaomi),
       fetchSafe(SOURCES.thtt),
       fetchSafe(SOURCES.xoiche),
     ]);
 
-    const allChannels = [
-      ...processM3UText(textThTT),
-      ...processM3UText(textXoiChe)
-    ];
+    // Phân loại kênh
+    const resXiaomi = processM3UText(textXiaomi);
+    const resThTT = processM3UText(textThTT);
+    const resXoiChe = processM3UText(textXoiChe);
 
+    // Gom tất cả các trận bóng đá lại
+    const allMatches = [...resXiaomi.matches, ...resThTT.matches, ...resXoiChe.matches];
+    
+    // Gom tất cả kênh truyền hình (không phải bóng đá) lại
+    const allOthers = [...resXiaomi.others, ...resThTT.others, ...resXoiChe.others];
+
+    // --- 1. XỬ LÝ NHÓM TRẬN ĐẤU ---
     const groupedMatches = {}; 
-    const otherChannels = []; 
-
-    allChannels.forEach(ch => {
-      if (ch.matchInfo) {
-        const key = ch.matchInfo.normalized;
-        if (!groupedMatches[key]) {
-          groupedMatches[key] = {
-            displayName: ch.matchInfo.displayName, 
-            streams: []
-          };
-        }
-        groupedMatches[key].streams.push(ch);
-      } else {
-        otherChannels.push(ch);
+    allMatches.forEach(ch => {
+      const key = ch.matchInfo.normalized;
+      if (!groupedMatches[key]) {
+        groupedMatches[key] = { displayName: ch.matchInfo.displayName, streams: [] };
       }
+      groupedMatches[key].streams.push(ch);
     });
 
     const parts = [];
@@ -239,16 +240,31 @@ export default async function handler(req, res) {
       });
     }
 
-    if (otherChannels.length > 0) {
-      otherChannels.forEach(ch => {
-        let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="📺 Kênh Khác / Sự Kiện"`);
+    // --- 2. XỬ LÝ NHÓM TRUYỀN HÌNH / KÊNH KHÁC ---
+    if (allOthers.length > 0) {
+      // Sắp xếp để nhóm Truyền Hình lên đầu
+      allOthers.sort((a, b) => {
+        if (a.originalGroup.includes("Truyền Hình") && !b.originalGroup.includes("Truyền Hình")) return -1;
+        if (!a.originalGroup.includes("Truyền Hình") && b.originalGroup.includes("Truyền Hình")) return 1;
+        return 0;
+      });
+
+      allOthers.forEach(ch => {
+        // Giữ nguyên group-title gốc (Truyền Hình, Phim, ...)
+        // Nếu nó thuộc mấy nhóm rác không tên thì đưa vào Kênh Khác
+        let finalGroup = ch.originalGroup;
+        if (normalizeStr(finalGroup) === "" || normalizeStr(finalGroup).length < 2) finalGroup = "📺 Kênh Khác";
+        
+        let newExtinf = ch.extinf.replace(/group-title="[^"]*"/i, `group-title="${finalGroup}"`);
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
 
+    // --- 3. KÊNH TRẠNG THÁI ---
     const statusTitle = `⏱️ Trạng thái: Hoạt động bình thường`;
     parts.push(`#EXTINF:-1 group-title="${statusTitle}",Hệ thống ổn định\n${STATUS_STREAM_URL}`);
 
+    // Ghép lại
     let combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 
