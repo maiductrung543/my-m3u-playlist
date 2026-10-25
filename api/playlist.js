@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL (Bỏ icon kênh, giữ icon đầu nhóm)
+//  M3U Aggregator - FINAL (Bỏ icon ngoài, giữ logo, lọc bỏ trạng thái)
 // ============================================================
 
 const SOURCES = {
@@ -149,7 +149,10 @@ function processM3UText(text) {
           if (urlIdx < lines.length) {
             const url = lines[urlIdx].trim();
             const titleMatch = line.match(/,(.*)$/);
-            const title = titleMatch ? titleMatch[1].trim() : "";
+            let title = titleMatch ? titleMatch[1].trim() : "";
+
+            // Xóa bỏ các icon trạng thái màu (🟢, 🟡, 🔴, 🟠, 🔵, v.v.)
+            title = title.replace(/[🟢🟡🔴🟠🔵⚪⚫]/g, '').trim();
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
@@ -166,13 +169,8 @@ function processM3UText(text) {
               }
 
               if (!isExpired) {
-                // Trích xuất icon thể thao từ tên nhóm hoặc tiêu đề gốc
-                let sportIcon = "⚽"; 
-                const combinedText = originalGroup + " " + title;
-                const emojiMatch = combinedText.match(/[\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u);
-                if (emojiMatch) {
-                  sportIcon = emojiMatch[0];
-                }
+                let logoMatch = line.match(/(?:tvg-logo|logo)=["']([^"']*)["']/i);
+                let logoUrl = logoMatch ? logoMatch[1] : "";
 
                 let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
@@ -192,7 +190,7 @@ function processM3UText(text) {
                   matches.push({ 
                     url: url, 
                     title: title,
-                    sportIcon: sportIcon,
+                    logoUrl: logoUrl,
                     cleanA: cleanAndAliasTeam(teamA),
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
@@ -202,7 +200,7 @@ function processM3UText(text) {
                   });
                 } else {
                   if (/truyen hinh/i.test(standardizeName(originalGroup))) {
-                     others.push({ url: url, title: title });
+                     others.push({ url: url, title: title, logoUrl: logoUrl });
                   }
                 }
               }
@@ -268,13 +266,10 @@ export default async function handler(req, res) {
              foundGroup.streams.push(ch);
           }
           if (ch.displayName.length > foundGroup.displayName.length) foundGroup.displayName = ch.displayName;
-          if (ch.sportIcon && ch.sportIcon !== '⚽') {
-            foundGroup.sportIcon = ch.sportIcon;
-          }
         } else {
           groupsList.push({ 
             cleanA: ch.cleanA, cleanB: ch.cleanB, displayName: ch.displayName, 
-            timeStr: ch.timeStr, timeMs: ch.timeMs, sportIcon: ch.sportIcon || '⚽', streams: [ch] 
+            timeStr: ch.timeStr, timeMs: ch.timeMs, streams: [ch] 
           });
         }
       } catch (e) {}
@@ -285,16 +280,18 @@ export default async function handler(req, res) {
 
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
-        let newExtinf = `#EXTINF:-1 group-title="📺 Truyền Hình",${ch.title}`;
+        let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
+        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="📺 Truyền Hình",${ch.title}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
 
     for (const group of groupsList) {
-      const groupTitle = `${group.sportIcon} [${group.timeStr}] ${group.displayName}`; 
+      // Đã loại bỏ icon thể thao ở ngoài cùng, chỉ giữ lại ngày giờ và tên cặp đấu
+      const groupTitle = `[${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
-        // Đã loại bỏ hoàn toàn thuộc tính tvg-logo ở dòng stream để không bị hiện icon thừa
-        let newExtinf = `#EXTINF:-1 group-title="${groupTitle}",${ch.blvName}`;
+        let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
+        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${ch.blvName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
