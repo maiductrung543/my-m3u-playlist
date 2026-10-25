@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED + 12H FILTER (Đã nới lỏng bộ lọc)
+//  M3U Aggregator - FINAL OPTIMIZED (Whitelist + Deduplicate AFC + 12H)
 // ============================================================
 
 const SOURCES = {
@@ -13,6 +13,16 @@ const BLOCKED_GROUP_KEYWORDS = [
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
 
+// 🌟 BỘ TỪ KHÓA GIẢI ĐẤU LỚN (WHITELIST) + BẢO VỆ ĐỘI TUYỂN/TRẺ VIỆT NAM
+const WHITELIST_LEAGUES = [
+  "ngoai hang", "premier league", "fa cup", "league cup", "community shield",
+  "champions league", "cup c1", "europa league", "cup c2", "conference league",
+  "la liga", "serie a", "bundesliga", "ligue 1",
+  "v league", "v-league", "viet nam", "việt nam", "dtvn", "doi tuyen", "đội tuyển",
+  "u23", "u19", "u20", "u17", "aff cup", "sea games", "vff",
+  "world cup", "euro", "copa america", "asian cup", "afc champions league"
+];
+
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT = 6000; 
@@ -23,7 +33,7 @@ const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 
 // --- CACHE CONFIG ---
 let cachedResult = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây để chạy cực nhanh
+const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
 
 // --- PRE-COMPILE REGEX ---
 const ALIASES = {
@@ -38,13 +48,14 @@ const ALIASES = {
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
 };
 
-const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
+const COMPILED_ALIASES = Object.entries(aliases).map(([k, v]) => ({
   regex: new RegExp(`\\b${k}\\b`, 'g'),
   val: v
 }));
 
 const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g;
-const TEAM_SUFFIX_REGEX = /\b(fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
+// 🌟 Thêm 'afc' vào đây để gom chuẩn "AFC Bournemouth" và "Bournemouth AFC" thành 1
+const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
 
 // ============================================================
 //  Helpers
@@ -127,6 +138,11 @@ function extractDateTime(title) {
   return null;
 }
 
+function isAllowedLeague(textToCheck) {
+  const standardized = standardizeName(textToCheck);
+  return WHITELIST_LEAGUES.some(keyword => standardized.includes(keyword));
+}
+
 // ============================================================
 //  Core Logic
 // ============================================================
@@ -180,12 +196,9 @@ function processM3UText(text) {
                 const matchDate = new Date(new Date().getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime();
                 const diffHours = (nowTime - matchDate) / (1000 * 60 * 60);
 
-                // 1. Kiểm tra đã đá quá lâu hay chưa (> 2 tiếng)
                 if (diffHours > EXPIRE_PAST_HOURS) {
                   skipMatch = true;
-                }
-                // 2. Kiểm tra có diễn ra quá xa trong tương lai không (> 12 tiếng)
-                else if (diffHours < -MAX_FUTURE_HOURS) {
+                } else if (diffHours < -MAX_FUTURE_HOURS) {
                   skipMatch = true;
                 }
               }
@@ -198,34 +211,37 @@ function processM3UText(text) {
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
                 if (vsMatch) {
-                  let teamA = vsMatch[1].trim();
-                  let teamB = vsMatch[2].trim();
-                  if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
-                      teamB = teamB.split(' ').slice(0, 2).join(' ');
+                  const fullTextCheck = `${originalGroup} ${title}`;
+                  if (isAllowedLeague(fullTextCheck)) {
+                    let teamA = vsMatch[1].trim();
+                    let teamB = vsMatch[2].trim();
+                    if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
+                        teamB = teamB.split(' ').slice(0, 2).join(' ');
+                    }
+                    teamB = teamB.trim();
+                    
+                    let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
+
+                    let blvName = "Live";
+                    const blvMatch = title.match(/\((.*?)\)/);
+                    if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
+
+                    const now = new Date();
+                    matches.push({ 
+                      url: url, 
+                      title: title,
+                      logoUrl: logoUrl,
+                      cleanA: cleanAndAliasTeam(teamA),
+                      cleanB: cleanAndAliasTeam(teamB),
+                      displayNameOut: displayNameOut,
+                      rawTeamA: teamA,
+                      rawTeamB: teamB,
+                      sportIcon: sportIcon,
+                      timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
+                      timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
+                      blvName: blvName
+                    });
                   }
-                  teamB = teamB.trim();
-                  
-                  let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
-
-                  let blvName = "Live";
-                  const blvMatch = title.match(/\((.*?)\)/);
-                  if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
-
-                  const now = new Date();
-                  matches.push({ 
-                    url: url, 
-                    title: title,
-                    logoUrl: logoUrl,
-                    cleanA: cleanAndAliasTeam(teamA),
-                    cleanB: cleanAndAliasTeam(teamB),
-                    displayNameOut: displayNameOut,
-                    rawTeamA: teamA,
-                    rawTeamB: teamB,
-                    sportIcon: sportIcon,
-                    timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
-                    timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
-                    blvName: blvName
-                  });
                 } else {
                   if (/truyen hinh/i.test(standardizeName(originalGroup))) {
                      others.push({ url: url, title: title, logoUrl: logoUrl });
