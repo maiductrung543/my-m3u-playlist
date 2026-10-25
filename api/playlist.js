@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED + WHITELIST + 12H FILTER
+//  M3U Aggregator - OPTIMIZED + 12H FILTER (Đã nới lỏng bộ lọc)
 // ============================================================
 
 const SOURCES = {
@@ -13,26 +13,17 @@ const BLOCKED_GROUP_KEYWORDS = [
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
 
-// 🌟 BỘ TỪ KHÓA GIẢI ĐẤU LỚN (WHITELIST)
-const WHITELIST_LEAGUES = [
-  "ngoai hang", "premier league", "fa cup", "league cup", "community shield",
-  "champions league", "cup c1", "europa league", "cup c2", "conference league",
-  "la liga", "serie a", "bundesliga", "ligue 1",
-  "v league", "v-league", "viet nam", "dtvn", "doi tuyen", "aff cup",
-  "sea games", "asian cup", "world cup", "euro", "copa america"
-];
-
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT = 6000; 
 
 const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
-const MAX_FUTURE_HOURS = 12;   // 🌟 Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
+const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
 
 // --- CACHE CONFIG ---
 let cachedResult = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
+const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây để chạy cực nhanh
 
 // --- PRE-COMPILE REGEX ---
 const ALIASES = {
@@ -136,12 +127,6 @@ function extractDateTime(title) {
   return null;
 }
 
-// Kiểm tra xem trận đấu có thuộc giải đấu lớn không
-function isAllowedLeague(textToCheck) {
-  const standardized = standardizeName(textToCheck);
-  return WHITELIST_LEAGUES.some(keyword => standardized.includes(keyword));
-}
-
 // ============================================================
 //  Core Logic
 // ============================================================
@@ -199,7 +184,7 @@ function processM3UText(text) {
                 if (diffHours > EXPIRE_PAST_HOURS) {
                   skipMatch = true;
                 }
-                // 2. 🌟 Kiểm tra có diễn ra quá xa trong tương lai không (> 12 tiếng)
+                // 2. Kiểm tra có diễn ra quá xa trong tương lai không (> 12 tiếng)
                 else if (diffHours < -MAX_FUTURE_HOURS) {
                   skipMatch = true;
                 }
@@ -213,38 +198,34 @@ function processM3UText(text) {
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
                 if (vsMatch) {
-                  // 🌟 KIỂM TRA WHITELIST GIẢI ĐẤU (Kiểm tra ở tên nhóm hoặc tiêu đề)
-                  const fullTextCheck = `${originalGroup} ${title}`;
-                  if (isAllowedLeague(fullTextCheck)) {
-                    let teamA = vsMatch[1].trim();
-                    let teamB = vsMatch[2].trim();
-                    if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
-                        teamB = teamB.split(' ').slice(0, 2).join(' ');
-                    }
-                    teamB = teamB.trim();
-                    
-                    let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
-
-                    let blvName = "Live";
-                    const blvMatch = title.match(/\((.*?)\)/);
-                    if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
-
-                    const now = new Date();
-                    matches.push({ 
-                      url: url, 
-                      title: title,
-                      logoUrl: logoUrl,
-                      cleanA: cleanAndAliasTeam(teamA),
-                      cleanB: cleanAndAliasTeam(teamB),
-                      displayNameOut: displayNameOut,
-                      rawTeamA: teamA,
-                      rawTeamB: teamB,
-                      sportIcon: sportIcon,
-                      timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
-                      timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
-                      blvName: blvName
-                    });
+                  let teamA = vsMatch[1].trim();
+                  let teamB = vsMatch[2].trim();
+                  if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
+                      teamB = teamB.split(' ').slice(0, 2).join(' ');
                   }
+                  teamB = teamB.trim();
+                  
+                  let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
+
+                  let blvName = "Live";
+                  const blvMatch = title.match(/\((.*?)\)/);
+                  if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
+
+                  const now = new Date();
+                  matches.push({ 
+                    url: url, 
+                    title: title,
+                    logoUrl: logoUrl,
+                    cleanA: cleanAndAliasTeam(teamA),
+                    cleanB: cleanAndAliasTeam(teamB),
+                    displayNameOut: displayNameOut,
+                    rawTeamA: teamA,
+                    rawTeamB: teamB,
+                    sportIcon: sportIcon,
+                    timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
+                    timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
+                    blvName: blvName
+                  });
                 } else {
                   if (/truyen hinh/i.test(standardizeName(originalGroup))) {
                      others.push({ url: url, title: title, logoUrl: logoUrl });
