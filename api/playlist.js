@@ -287,11 +287,15 @@ export default async function handler(req, res) {
     }
 
     for (const group of groupsList) {
-      // Đã loại bỏ icon thể thao ở ngoài cùng, chỉ giữ lại ngày giờ và tên cặp đấu
       const groupTitle = `[${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
-        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${ch.blvName}`;
+        
+        // 👉 ĐÃ THÊM: Chèn tên trận đấu vào sau tên BLV (Tên trận nằm trong ngoặc)
+        // Ví dụ hiển thị trong danh sách luồng: "Trần Hoàng (Sydney FC vs Adelaide United)"
+        let channelName = `${ch.blvName} (${group.displayName})`;
+        
+        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${channelName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
