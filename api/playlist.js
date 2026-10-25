@@ -154,6 +154,10 @@ function processM3UText(text) {
             // Xóa bỏ các icon trạng thái màu (🟢, 🟡, 🔴, 🟠, 🔵, v.v.)
             title = title.replace(/[🟢🟡🔴🟠🔵⚪⚫]/g, '').trim();
 
+            // Trích xuất icon thể thao từ tiêu đề gốc (vd: ⚽, 🏐, 🏀,...)
+            const sportIconMatch = title.match(/[⚽🏐🏀🎾🏈⚾]/);
+            let sportIcon = sportIconMatch ? sportIconMatch[0] : "";
+
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
             if (!isBlocked && !isFlv) {
@@ -183,13 +187,11 @@ function processM3UText(text) {
                   }
                   teamB = teamB.trim();
                   
-                  // Tên hiển thị bên ngoài (Bỏ dấu /, giữ nguyên các thành phần khác)
                   let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
 
                   let blvName = "Live";
-                  const blvMatch = title.match(/\((.*?)\);/); // fallback check
-                  const blvMatchAlternative = title.match(/\((.*?)\)/);
-                  if (blvMatchAlternative) blvName = blvMatchAlternative[1].replace(/\[.*?\]/g, '').trim();
+                  const blvMatch = title.match(/\((.*?)\)/);
+                  if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
 
                   const now = new Date();
                   matches.push({ 
@@ -201,6 +203,7 @@ function processM3UText(text) {
                     displayNameOut: displayNameOut,
                     rawTeamA: teamA,
                     rawTeamB: teamB,
+                    sportIcon: sportIcon,
                     timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
                     timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
                     blvName: blvName
@@ -276,12 +279,14 @@ export default async function handler(req, res) {
              foundGroup.displayNameOut = ch.displayNameOut;
              foundGroup.rawTeamA = ch.rawTeamA;
              foundGroup.rawTeamB = ch.rawTeamB;
+             if (ch.sportIcon) foundGroup.sportIcon = ch.sportIcon;
           }
         } else {
           groupsList.push({ 
             cleanA: ch.cleanA, cleanB: ch.cleanB, 
             displayNameOut: ch.displayNameOut, 
             rawTeamA: ch.rawTeamA, rawTeamB: ch.rawTeamB,
+            sportIcon: ch.sportIcon,
             timeStr: ch.timeStr, timeMs: ch.timeMs, streams: [ch] 
           });
         }
@@ -306,13 +311,15 @@ export default async function handler(req, res) {
       group.streams.forEach((ch) => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
         
-        // 2. Bên trong luồng phát: 
-        // - Tên BLV đóng trong ngoặc vuông: [Trần Hoàng]
-        // - Có icon ⚽️
+        // 2. Bên trong luồng phát:
+        // - Tên BLV nằm trong ngoặc vuông: [Trần Hoàng]
+        // - Hiển thị đúng icon thể thao tương ứng của trận (không bị ép buộc icon bóng đá)
         // - Không dùng ngoặc tròn bao quanh tên đội bóng
-        let cleanTeamA = ch.rawTeamA.replace(/^[\/]+/g, '').trim();
-        let cleanTeamB = ch.rawTeamB.replace(/^[\/]+/g, '').trim();
-        let channelName = `[${ch.blvName}] ⚽️ ${cleanTeamA} vs ${cleanTeamB}`;
+        let cleanTeamA = ch.rawTeamA.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
+        let cleanTeamB = ch.rawTeamB.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
+        let iconStr = ch.sportIcon ? `${ch.sportIcon} ` : "";
+        
+        let channelName = `[${ch.blvName}] ${iconStr}${cleanTeamA} vs ${cleanTeamB}`;
         
         let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${channelName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
