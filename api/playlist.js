@@ -27,6 +27,11 @@ const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
 
 // --- PRE-COMPILE REGEX ---
 const ALIASES = {
+  // Bổ sung biệt danh tiếng Việt phổ biến
+  "man dan": "manchester united",
+  "quy do": "manchester united",
+
+  // Các alias sẵn có
   "man city": "manchester city", "man utd": "manchester united", "man united": "manchester united",
   "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
@@ -361,11 +366,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Đưa phần Trạng thái lên ngay sau nhóm Truyền hình (Đúng yêu cầu)
+    // 2. Đưa phần Trạng thái lên ngay sau nhóm Truyền hình
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
-    // 3. Tiếp theo là danh sách các trận đấu đã gộp triệt để
+    // 3. Tiếp theo là danh sách các trận đấu đã gộp
     for (const group of groupsList) {
       const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
       
