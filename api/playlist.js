@@ -27,7 +27,7 @@ const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
 
 // --- PRE-COMPILE REGEX ---
 const ALIASES = {
-  // Bổ sung biệt danh tiếng Việt phổ biến
+  // Biệt danh tiếng Việt
   "man dan": "manchester united",
   "quy do": "manchester united",
 
@@ -79,6 +79,7 @@ async function fetchSafe(url) {
 function standardizeName(name) {
   if (!name) return "";
   return name.toLowerCase()
+    .replace(/đ/g, 'd') // Đảm bảo xử lý chuẩn chữ đ/Đ trong tiếng Việt
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ').trim();
@@ -115,24 +116,22 @@ function isSameTeam(team1, team2) {
     for (let w2 of words2) {
       if ((w1 === 'ath' && w2 === 'athletic') || (w1 === 'athletic' && w2 === 'ath') ||
           (w1 === 'atl' && w2 === 'atletico') || (w1 === 'atletico' && w2 === 'atl')) {
-        // Tìm xem có chung từ cốt lõi đặc trưng nào dài từ 4 ký tự trở lên không
         const hasCoreMatch = words1.some(w => w.length >= 4 && !GENERIC_WORDS.has(w) && words2.includes(w));
         if (hasCoreMatch || words1.length === 1 || words2.length === 1) return true;
       }
     }
   }
 
-  // 2. Trích xuất từ khóa cốt lõi (bỏ qua các từ chung chung như real, united, city...)
+  // 2. Trích xuất từ khóa cốt lõi
   const core1 = words1.filter(w => w.length >= 4 && !GENERIC_WORDS.has(w));
   const core2 = words2.filter(w => w.length >= 4 && !GENERIC_WORDS.has(w));
 
-  // Nếu cả hai đều có từ cốt lõi đặc trưng trùng nhau (VD: 'bilbao', 'sociedad', 'osasuna')
   const sharedCore = core1.some(c1 => core2.includes(c1));
   if (sharedCore) {
     return true;
   }
 
-  // 3. Dự phòng bằng khoảng cách Levenshtein cho các lỗi chính tả nhỏ
+  // 3. Dự phòng bằng khoảng cách Levenshtein
   const dist = levenshtein(team1, team2);
   const maxLen = Math.max(team1.length, team2.length);
   return (dist / maxLen) <= 0.35; 
