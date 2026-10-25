@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (No Whitelist + 12H Filter + Fix Duplicate Teams)
+//  M3U Aggregator - OPTIMIZED (No Whitelist + 12H Filter + Smart Core Match)
 // ============================================================
 
 const SOURCES = {
@@ -33,6 +33,7 @@ const ALIASES = {
   "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
   "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
+  "ath bilbao": "athletic bilbao", "ath": "athletic", "atl": "atletico",
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
@@ -44,8 +45,10 @@ const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
 }));
 
 const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g;
-// Loại bỏ các từ phụ để chuẩn hóa tên đội (xử lý triệt để AFC Bournemouth vs Bournemouth AFC)
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
+
+// Các từ chung chung không được dùng làm từ khóa cốt lõi đơn độc để tránh gộp nhầm
+const GENERIC_WORDS = new Set(["real", "united", "city", "sporting", "deportivo", "atletico", "athletic", "club", "team"]);
 
 // ============================================================
 //  Helpers
@@ -94,9 +97,37 @@ function levenshtein(a, b) {
   return matrix[b.length][a.length];
 }
 
+// Hàm so sánh tên đội thông minh: Kết hợp Viết tắt, Tiền tố và Từ khóa cốt lõi (Core Keyword)
 function isSameTeam(team1, team2) {
   if (team1 === team2) return true;
   if (team1.includes(team2) || team2.includes(team1)) return true;
+
+  const words1 = team1.split(' ');
+  const words2 = team2.split(' ');
+
+  // 1. Kiểm tra biến thể viết tắt đặc thù (Athletic/Ath, Atletico/Atl)
+  for (let w1 of words1) {
+    for (let w2 of words2) {
+      if ((w1 === 'ath' && w2 === 'athletic') || (w1 === 'athletic' && w2 === 'ath') ||
+          (w1 === 'atl' && w2 === 'atletico') || (w1 === 'atletico' && w2 === 'atl')) {
+        // Tìm xem có chung từ cốt lõi đặc trưng nào dài từ 4 ký tự trở lên không
+        const hasCoreMatch = words1.some(w => w.length >= 4 && !GENERIC_WORDS.has(w) && words2.includes(w));
+        if (hasCoreMatch || words1.length === 1 || words2.length === 1) return true;
+      }
+    }
+  }
+
+  // 2. Trích xuất từ khóa cốt lõi (bỏ qua các từ chung chung như real, united, city...)
+  const core1 = words1.filter(w => w.length >= 4 && !GENERIC_WORDS.has(w));
+  const core2 = words2.filter(w => w.length >= 4 && !GENERIC_WORDS.has(w));
+
+  // Nếu cả hai đều có từ cốt lõi đặc trưng trùng nhau (VD: 'bilbao', 'sociedad', 'osasuna')
+  const sharedCore = core1.some(c1 => core2.includes(c1));
+  if (sharedCore) {
+    return true;
+  }
+
+  // 3. Dự phòng bằng khoảng cách Levenshtein cho các lỗi chính tả nhỏ
   const dist = levenshtein(team1, team2);
   const maxLen = Math.max(team1.length, team2.length);
   return (dist / maxLen) <= 0.35; 
@@ -289,7 +320,6 @@ export default async function handler(req, res) {
       try {
         let foundGroup = null;
         for (const group of groupsList) {
-          // So khớp chéo cả 2 chiều A-B và B-A, đồng thời dùng cleanA/cleanB đã loại bỏ AFC, FC để gộp chuẩn xác
           if ((isSameTeam(ch.cleanA, group.cleanA) && isSameTeam(ch.cleanB, group.cleanB)) ||
               (isSameTeam(ch.cleanA, group.cleanB) && isSameTeam(ch.cleanB, group.cleanA))) {
             foundGroup = group; break;
@@ -322,6 +352,7 @@ export default async function handler(req, res) {
     groupsList.sort((a, b) => a.timeMs - b.timeMs);
     const parts = [];
 
+    // 1. Thêm nhóm Truyền hình trước
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
@@ -330,6 +361,11 @@ export default async function handler(req, res) {
       });
     }
 
+    // 2. Đưa phần Trạng thái lên ngay sau nhóm Truyền hình (Đúng yêu cầu)
+    const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
+    parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
+
+    // 3. Tiếp theo là danh sách các trận đấu đã gộp triệt để
     for (const group of groupsList) {
       const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
       
@@ -345,9 +381,6 @@ export default async function handler(req, res) {
         parts.push(`${newExtinf}\n${ch.url}`);
       });
     }
-
-    const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
-    parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     combined = "#EXTM3U\n" + parts.join("\n\n");
     combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
