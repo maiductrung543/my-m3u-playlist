@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL OPTIMIZED (Whitelist + Deduplicate AFC + 12H)
+//  M3U Aggregator - OPTIMIZED (No Whitelist + 12H Filter + Fix Duplicate Teams)
 // ============================================================
 
 const SOURCES = {
@@ -11,16 +11,6 @@ const SOURCES = {
 const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
-];
-
-// 🌟 BỘ TỪ KHÓA GIẢI ĐẤU LỚN (WHITELIST) + BẢO VỆ ĐỘI TUYỂN/TRẺ VIỆT NAM
-const WHITELIST_LEAGUES = [
-  "ngoai hang", "premier league", "fa cup", "league cup", "community shield",
-  "champions league", "cup c1", "europa league", "cup c2", "conference league",
-  "la liga", "serie a", "bundesliga", "ligue 1",
-  "v league", "v-league", "viet nam", "việt nam", "dtvn", "doi tuyen", "đội tuyển",
-  "u23", "u19", "u20", "u17", "aff cup", "sea games", "vff",
-  "world cup", "euro", "copa america", "asian cup", "afc champions league"
 ];
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
@@ -48,13 +38,13 @@ const ALIASES = {
   "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
 };
 
-const COMPILED_ALIASES = Object.entries(aliases).map(([k, v]) => ({
+const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
   regex: new RegExp(`\\b${k}\\b`, 'g'),
   val: v
 }));
 
 const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g;
-// 🌟 Thêm 'afc' vào đây để gom chuẩn "AFC Bournemouth" và "Bournemouth AFC" thành 1
+// Loại bỏ các từ phụ để chuẩn hóa tên đội (xử lý triệt để AFC Bournemouth vs Bournemouth AFC)
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
 
 // ============================================================
@@ -138,11 +128,6 @@ function extractDateTime(title) {
   return null;
 }
 
-function isAllowedLeague(textToCheck) {
-  const standardized = standardizeName(textToCheck);
-  return WHITELIST_LEAGUES.some(keyword => standardized.includes(keyword));
-}
-
 // ============================================================
 //  Core Logic
 // ============================================================
@@ -211,37 +196,34 @@ function processM3UText(text) {
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
                 if (vsMatch) {
-                  const fullTextCheck = `${originalGroup} ${title}`;
-                  if (isAllowedLeague(fullTextCheck)) {
-                    let teamA = vsMatch[1].trim();
-                    let teamB = vsMatch[2].trim();
-                    if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
-                        teamB = teamB.split(' ').slice(0, 2).join(' ');
-                    }
-                    teamB = teamB.trim();
-                    
-                    let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
-
-                    let blvName = "Live";
-                    const blvMatch = title.match(/\((.*?)\)/);
-                    if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
-
-                    const now = new Date();
-                    matches.push({ 
-                      url: url, 
-                      title: title,
-                      logoUrl: logoUrl,
-                      cleanA: cleanAndAliasTeam(teamA),
-                      cleanB: cleanAndAliasTeam(teamB),
-                      displayNameOut: displayNameOut,
-                      rawTeamA: teamA,
-                      rawTeamB: teamB,
-                      sportIcon: sportIcon,
-                      timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
-                      timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
-                      blvName: blvName
-                    });
+                  let teamA = vsMatch[1].trim();
+                  let teamB = vsMatch[2].trim();
+                  if (teamB.split(' ').length > 2 && !ALIASES[teamB.toLowerCase()]) {
+                      teamB = teamB.split(' ').slice(0, 2).join(' ');
                   }
+                  teamB = teamB.trim();
+                  
+                  let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
+
+                  let blvName = "Live";
+                  const blvMatch = title.match(/\((.*?)\)/);
+                  if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
+
+                  const now = new Date();
+                  matches.push({ 
+                    url: url, 
+                    title: title,
+                    logoUrl: logoUrl,
+                    cleanA: cleanAndAliasTeam(teamA),
+                    cleanB: cleanAndAliasTeam(teamB),
+                    displayNameOut: displayNameOut,
+                    rawTeamA: teamA,
+                    rawTeamB: teamB,
+                    sportIcon: sportIcon,
+                    timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
+                    timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
+                    blvName: blvName
+                  });
                 } else {
                   if (/truyen hinh/i.test(standardizeName(originalGroup))) {
                      others.push({ url: url, title: title, logoUrl: logoUrl });
@@ -307,6 +289,7 @@ export default async function handler(req, res) {
       try {
         let foundGroup = null;
         for (const group of groupsList) {
+          // So khớp chéo cả 2 chiều A-B và B-A, đồng thời dùng cleanA/cleanB đã loại bỏ AFC, FC để gộp chuẩn xác
           if ((isSameTeam(ch.cleanA, group.cleanA) && isSameTeam(ch.cleanB, group.cleanB)) ||
               (isSameTeam(ch.cleanA, group.cleanB) && isSameTeam(ch.cleanB, group.cleanA))) {
             foundGroup = group; break;
