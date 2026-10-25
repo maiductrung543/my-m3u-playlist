@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - FINAL (Đã fix chuẩn Logo kênh/Đội bóng)
+//  M3U Aggregator - FINAL (Đã fix chuẩn Logo & Icon Thể Thao)
 // ============================================================
 
 const SOURCES = {
@@ -158,7 +158,6 @@ function processM3UText(text) {
               let isExpired = false;
 
               if (dt) {
-                // Lấy giờ chuẩn Việt Nam (Asia/Ho_Chi_Minh)
                 const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
                 const matchDate = new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m);
                 if ((now.getTime() - matchDate.getTime()) / (1000 * 60 * 60) > EXPIRE_HOURS) {
@@ -167,9 +166,17 @@ function processM3UText(text) {
               }
 
               if (!isExpired) {
-                // TRÍCH XUẤT CHÍNH XÁC LOGO (Hỗ trợ cả tvg-logo và logo=...)
+                // Trích xuất logo gốc
                 let logoMatch = line.match(/(?:tvg-logo|logo)=["']([^"']*)["']/i);
                 let logoUrl = logoMatch ? logoMatch[1] : "";
+
+                // TRÍCH XUẤT ICON THỂ THAO TỪ TÊN NHÓM HOẶC TIÊU ĐỀ GỐC (Ví dụ: 🏀, ⚾, 🏐, ...)
+                let sportIcon = "⚽"; // Mặc định nếu không tìm thấy
+                const combinedText = originalGroup + " " + title;
+                const emojiMatch = combinedText.match(/[\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u);
+                if (emojiMatch) {
+                  sportIcon = emojiMatch[0];
+                }
 
                 let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
@@ -189,7 +196,8 @@ function processM3UText(text) {
                   matches.push({ 
                     url: url, 
                     title: title,
-                    logoUrl: logoUrl, // Lưu lại đường dẫn logo gốc
+                    logoUrl: logoUrl,
+                    sportIcon: sportIcon, // Lưu lại icon thể thao chính xác
                     cleanA: cleanAndAliasTeam(teamA),
                     cleanB: cleanAndAliasTeam(teamB),
                     displayName: `${teamA} vs ${teamB}`,
@@ -265,10 +273,14 @@ export default async function handler(req, res) {
              foundGroup.streams.push(ch);
           }
           if (ch.displayName.length > foundGroup.displayName.length) foundGroup.displayName = ch.displayName;
+          // Ưu tiên giữ icon đặc thù nếu tìm thấy
+          if (ch.sportIcon && ch.sportIcon !== '⚽') {
+            foundGroup.sportIcon = ch.sportIcon;
+          }
         } else {
           groupsList.push({ 
             cleanA: ch.cleanA, cleanB: ch.cleanB, displayName: ch.displayName, 
-            timeStr: ch.timeStr, timeMs: ch.timeMs, streams: [ch] 
+            timeStr: ch.timeStr, timeMs: ch.timeMs, sportIcon: ch.sportIcon || '⚽', streams: [ch] 
           });
         }
       } catch (e) {}
@@ -286,9 +298,9 @@ export default async function handler(req, res) {
     }
 
     for (const group of groupsList) {
-      const groupTitle = `⚽ [${group.timeStr}] ${group.displayName}`; 
+      // Dùng chính xác icon thể thao tương ứng thay vì ép cứng bóng đá
+      const groupTitle = `${group.sportIcon} [${group.timeStr}] ${group.displayName}`; 
       group.streams.forEach((ch) => {
-        // GẮN LẠI LOGO GỐC CHÍNH XÁC CHO TỪNG KÊNH TRONG NHÓM
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
         let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${ch.blvName}`;
         parts.push(`${newExtinf}\n${ch.url}`);
