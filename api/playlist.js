@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Partial Keyword Match + Full Names)
+//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only)
 // ============================================================
 
 const SOURCES = {
@@ -12,6 +12,9 @@ const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
+
+// Danh sách các icon môn thể thao KHÔNG PHẢI bóng đá để loại bỏ
+const OTHER_SPORTS_ICONS_REGEX = /[🏐🏀🎾🏈⚾🎱🏸🥊🏒🏉🎯🏎️🏎]/;
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -105,13 +108,13 @@ function extractDateTime(title) {
   return null;
 }
 
-// --- THUẬT TOÁN GỘP THÔNG MINH: NGÀY GIỜ CHUẨN + TRÙNG TỪ KHÓA MỘT PHẦN ---
+// --- THUẬT TOÁN GỘP THÔNG MINH: CHUẨN NGÀY GIỜ + TRÙNG TỪ KHÓA MỘT PHẦN ---
 function isMatchGroup(ch, group) {
-  // 1. Kiểm tra chuẩn ngày giờ: Chênh lệch thời gian giữa 2 nguồn không quá 45 phút
+  // 1. Kiểm tra ngày giờ: Chênh lệch không quá 45 phút
   const timeDiff = Math.abs(ch.timeMs - group.timeMs);
   if (timeDiff > 45 * 60 * 1000) return false;
 
-  // 2. Tách từ khóa có độ dài >= 3 ký tự để so sánh
+  // 2. So sánh từ khóa chính (độ dài >= 3 ký tự)
   const getWords = (str) => standardizeName(str).split(' ').filter(w => w.length >= 3);
   
   const a1 = getWords(ch.cleanA);
@@ -121,8 +124,6 @@ function isMatchGroup(ch, group) {
 
   const countOverlap = (arr1, arr2) => arr1.filter(w => arr2.includes(w)).length;
 
-  // Kiểm tra khớp thẳng (A1 vs A2 và B1 vs B2) hoặc chéo sân nhà/khách (A1 vs B2 và B1 vs A2)
-  // Chỉ cần mỗi bên trùng ít nhất 1 từ khóa cốt lõi là khớp
   const directMatch = countOverlap(a1, a2) >= 1 && countOverlap(b1, b2) >= 1;
   const crossMatch = countOverlap(a1, b2) >= 1 && countOverlap(b1, a2) >= 1;
 
@@ -168,13 +169,16 @@ function processM3UText(text) {
             const titleMatch = line.match(/,(.*)$/);
             let title = titleMatch ? titleMatch[1].trim() : "";
 
+            // LOẠI BỎ CÁC MÔN THỂ THAO KHÁC (Chỉ lọc nếu chứa Icon môn khác)
+            const hasOtherSportIcon = OTHER_SPORTS_ICONS_REGEX.test(title);
+
             title = title.replace(/[🟢🟡🔴🟠🔵⚪⚫]/g, '').trim();
-            const sportIconMatch = title.match(/[⚽🏐🏀🎾🏈⚾]/);
-            let sportIcon = sportIconMatch ? sportIconMatch[0] : "";
+            const sportIconMatch = title.match(/[⚽]/);
+            let sportIcon = sportIconMatch ? sportIconMatch[0] : "⚽"; // Mặc định gán icon bóng đá nếu hợp lệ
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
-            if (!isBlocked && !isFlv) {
+            if (!isBlocked && !isFlv && !hasOtherSportIcon) {
               const dt = extractDateTime(title);
               let skipMatch = false;
 
@@ -200,7 +204,7 @@ function processM3UText(text) {
                   let teamA = vsMatch[1].trim();
                   let teamB = vsMatch[2].trim();
                   
-                  // ĐÃ BỎ ĐOẠN CẮT CỤT TÊN (giữ nguyên vẹn toàn bộ tên đội bóng)
+                  // Giữ nguyên vẹn toàn bộ tên gốc, không cắt ngắn
                   let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
 
                   let blvName = "Live";
@@ -319,7 +323,7 @@ export default async function handler(req, res) {
     groupsList.sort((a, b) => a.timeMs - b.timeMs);
     const parts = [];
 
-    // 1. Thêm nhóm Truyền hình trước
+    // 1. Nhóm Truyền hình
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
@@ -328,11 +332,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Trạng thái ổ định
+    // 2. Trạng thái hệ thống
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
-    // 3. Danh sách trận đấu đã gộp chuẩn xác
+    // 3. Danh sách các trận bóng đá đã gom nhóm chuẩn xác
     for (const group of groupsList) {
       const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
       
