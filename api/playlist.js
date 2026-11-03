@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only)
+//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only + Hot Matches API)
 // ============================================================
 
 const SOURCES = {
@@ -22,6 +22,15 @@ const FETCH_TIMEOUT = 6000;
 
 const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
 const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
+
+// --- API CONFIG FOR HOT MATCHES (Football-Data.org Free Tier) ---
+// Bạn có thể đăng ký tài khoản miễn phí tại football-data.org để lấy key riêng nếu muốn, hoặc dùng key mẫu
+const FOOTBALL_DATA_API_KEY = "YOUR_API_KEY_HERE"; 
+const FOOTBALL_DATA_URL = "https://api.football-data.org/v4/matches";
+
+let cachedFixtures = null;
+let fixturesCacheTimestamp = 0;
+const FIXTURES_CACHE_TTL_MS = 2 * 3600 * 1000; // Cache lịch thi đấu API trong 2 tiếng
 
 // --- CACHE CONFIG ---
 let cachedResult = null;
@@ -56,12 +65,12 @@ const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u2
 //  Helpers
 // ============================================================
 
-async function fetchSafe(url) {
+async function fetchSafe(url, options = {}) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
     const res = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT, Accept: "*/*" },
+      headers: { "User-Agent": USER_AGENT, Accept: "*/*", ...options.headers },
       signal: controller.signal,
       redirect: "follow",
     });
@@ -71,6 +80,43 @@ async function fetchSafe(url) {
   } catch {
     return "";
   }
+}
+
+// Lấy danh sách trận đấu hot từ API (Có cơ chế Cache & Fallback an toàn)
+async function fetchFeaturedFixtures() {
+  const now = Date.now();
+  if (cachedFixtures && (now - fixturesCacheTimestamp < FIXTURES_CACHE_TTL_MS)) {
+    return cachedFixtures;
+  }
+
+  if (!FOOTBALL_DATA_API_KEY || FOOTBALL_DATA_API_KEY === "YOUR_API_KEY_HERE") {
+    return []; // Nếu chưa điền key thì bỏ qua an toàn
+  }
+
+  try {
+    const resText = await fetchSafe(FOOTBALL_DATA_URL, {
+      headers: { "X-Auth-Token": FOOTBALL_DATA_API_KEY }
+    });
+    if (!resText) return cachedFixtures || [];
+
+    const data = JSON.parse(resText);
+    if (data && data.matches) {
+      // Lọc các trận đấu thuộc các giải VIP (Champions League, Premier League, La Liga,...)
+      const hotMatches = data.matches.map(m => {
+        return {
+          homeTeam: standardizeName(m.homeTeam.name),
+          awayTeam: standardizeName(m.awayTeam.name),
+          competition: m.competition.name
+        };
+      });
+      cachedFixtures = hotMatches;
+      fixturesCacheTimestamp = now;
+      return hotMatches;
+    }
+  } catch (e) {
+    // Nếu lỗi API, trả về mảng rỗng để không làm ảnh hưởng luồng chính
+  }
+  return cachedFixtures || [];
 }
 
 function standardizeName(name) {
@@ -110,11 +156,9 @@ function extractDateTime(title) {
 
 // --- THUẬT TOÁN GỘP THÔNG MINH: CHUẨN NGÀY GIỜ + TRÙNG TỪ KHÓA MỘT PHẦN ---
 function isMatchGroup(ch, group) {
-  // 1. Kiểm tra ngày giờ: Chênh lệch không quá 45 phút
   const timeDiff = Math.abs(ch.timeMs - group.timeMs);
   if (timeDiff > 45 * 60 * 1000) return false;
 
-  // 2. So sánh từ khóa chính (độ dài >= 3 ký tự)
   const getWords = (str) => standardizeName(str).split(' ').filter(w => w.length >= 3);
   
   const a1 = getWords(ch.cleanA);
@@ -128,6 +172,23 @@ function isMatchGroup(ch, group) {
   const crossMatch = countOverlap(a1, b2) >= 1 && countOverlap(b1, a2) >= 1;
 
   return directMatch || crossMatch;
+}
+
+// Kiểm tra xem trận đấu có khớp với danh sách trận hot từ API hay không
+function isHotMatch(group, apiFixtures) {
+  if (!apiFixtures || apiFixtures.length === 0) return false;
+  
+  for (const fix of apiFixtures) {
+    const matchHome = group.cleanA.includes(fix.homeTeam) || fix.homeTeam.includes(group.cleanA);
+    const matchAway = group.cleanB.includes(fix.awayTeam) || fix.awayTeam.includes(group.cleanB);
+    const crossHome = group.cleanA.includes(fix.awayTeam) || fix.awayTeam.includes(group.cleanA);
+    const crossAway = group.cleanB.includes(fix.homeTeam) || fix.homeTeam.includes(group.cleanB);
+
+    if ((matchHome && matchAway) || (crossHome && crossAway)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ============================================================
@@ -169,12 +230,11 @@ function processM3UText(text) {
             const titleMatch = line.match(/,(.*)$/);
             let title = titleMatch ? titleMatch[1].trim() : "";
 
-            // LOẠI BỎ CÁC MÔN THỂ THAO KHÁC (Chỉ lọc nếu chứa Icon môn khác)
             const hasOtherSportIcon = OTHER_SPORTS_ICONS_REGEX.test(title);
 
             title = title.replace(/[🟢🟡🔴🟠🔵⚪⚫]/g, '').trim();
             const sportIconMatch = title.match(/[⚽]/);
-            let sportIcon = sportIconMatch ? sportIconMatch[0] : "⚽"; // Mặc định gán icon bóng đá nếu hợp lệ
+            let sportIcon = sportIconMatch ? sportIconMatch[0] : "⚽";
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
@@ -204,7 +264,6 @@ function processM3UText(text) {
                   let teamA = vsMatch[1].trim();
                   let teamB = vsMatch[2].trim();
                   
-                  // Giữ nguyên vẹn toàn bộ tên gốc, không cắt ngắn
                   let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
 
                   let blvName = "Live";
@@ -264,8 +323,12 @@ export default async function handler(req, res) {
   let combined = "#EXTM3U\n"; 
 
   try {
-    const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
-      fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
+    // Gọi song song các nguồn M3U và lấy lịch thi đấu API (với cơ chế try/catch ngầm an toàn)
+    const [textXiaomi, textThTT, textXoiChe, apiFixtures] = await Promise.all([
+      fetchSafe(SOURCES.xiaomi), 
+      fetchSafe(SOURCES.thtt), 
+      fetchSafe(SOURCES.xoiche),
+      fetchFeaturedFixtures()
     ]);
 
     let updateTime = "";
@@ -320,10 +383,41 @@ export default async function handler(req, res) {
       } catch (e) {}
     });
 
-    groupsList.sort((a, b) => a.timeMs - b.timeMs);
+    // Phân loại nhóm Hot và nhóm Thường
+    const hotGroups = [];
+    const normalGroups = [];
+
+    groupsList.forEach(group => {
+      if (isHotMatch(group, apiFixtures)) {
+        hotGroups.push(group);
+      } else {
+        normalGroups.push(group);
+      }
+    });
+
+    hotGroups.sort((a, b) => a.timeMs - b.timeMs);
+    normalGroups.sort((a, b) => a.timeMs - b.timeMs);
+
     const parts = [];
 
-    // 1. Nhóm Truyền hình
+    // 1. NHÓM ẢO TRẬN TÂM ĐIỂM - TRẬN HOT (Đưa lên đầu tiên)
+    if (hotGroups.length > 0) {
+      for (const group of hotGroups) {
+        const groupTitle = `🔥 TRẬN TÂM ĐIỂM - TRẬN HOT  🔥 [${group.timeStr}] ${group.displayNameOut}`;
+        group.streams.forEach((ch) => {
+          let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
+          let cleanTeamA = ch.rawTeamA.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
+          let cleanTeamB = ch.rawTeamB.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
+          let iconStr = ch.sportIcon ? `${ch.sportIcon} ` : "";
+          
+          let channelName = `[${ch.blvName}] ${iconStr}${cleanTeamA} vs ${cleanTeamB}`;
+          let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${channelName}`;
+          parts.push(`${newExtinf}\n${ch.url}`);
+        });
+      }
+    }
+
+    // 2. Nhóm Truyền hình
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
@@ -332,12 +426,12 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Trạng thái hệ thống
+    // 3. Trạng thái hệ thống
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
-    // 3. Danh sách các trận bóng đá đã gom nhóm chuẩn xác
-    for (const group of groupsList) {
+    // 4. Danh sách các trận bóng đá bình thường còn lại
+    for (const group of normalGroups) {
       const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
       
       group.streams.forEach((ch) => {
