@@ -24,8 +24,7 @@ const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
 const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
 
 // --- API CONFIG FOR HOT MATCHES (Football-Data.org Free Tier) ---
-// Bạn có thể đăng ký tài khoản miễn phí tại football-data.org để lấy key riêng nếu muốn, hoặc dùng key mẫu
-const FOOTBALL_DATA_API_KEY = "YOUR_API_KEY_HERE"; 
+const FOOTBALL_DATA_API_KEY = "da4ee468a99c4bfd9953108f4241d612"; 
 const FOOTBALL_DATA_URL = "https://api.football-data.org/v4/matches";
 
 let cachedFixtures = null;
@@ -90,7 +89,7 @@ async function fetchFeaturedFixtures() {
   }
 
   if (!FOOTBALL_DATA_API_KEY || FOOTBALL_DATA_API_KEY === "YOUR_API_KEY_HERE") {
-    return []; // Nếu chưa điền key thì bỏ qua an toàn
+    return [];
   }
 
   try {
@@ -101,7 +100,6 @@ async function fetchFeaturedFixtures() {
 
     const data = JSON.parse(resText);
     if (data && data.matches) {
-      // Lọc các trận đấu thuộc các giải VIP (Champions League, Premier League, La Liga,...)
       const hotMatches = data.matches.map(m => {
         return {
           homeTeam: standardizeName(m.homeTeam.name),
@@ -114,7 +112,7 @@ async function fetchFeaturedFixtures() {
       return hotMatches;
     }
   } catch (e) {
-    // Nếu lỗi API, trả về mảng rỗng để không làm ảnh hưởng luồng chính
+    // Fallback an toàn nếu API lỗi
   }
   return cachedFixtures || [];
 }
@@ -323,7 +321,6 @@ export default async function handler(req, res) {
   let combined = "#EXTM3U\n"; 
 
   try {
-    // Gọi song song các nguồn M3U và lấy lịch thi đấu API (với cơ chế try/catch ngầm an toàn)
     const [textXiaomi, textThTT, textXoiChe, apiFixtures] = await Promise.all([
       fetchSafe(SOURCES.xiaomi), 
       fetchSafe(SOURCES.thtt), 
@@ -383,7 +380,6 @@ export default async function handler(req, res) {
       } catch (e) {}
     });
 
-    // Phân loại nhóm Hot và nhóm Thường
     const hotGroups = [];
     const normalGroups = [];
 
