@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Safe Error Handling + Big Teams + VN Teams)
+//  M3U Aggregator - DOUBLE FILTER HOT MATCHES (Safe Error Handling)
 // ============================================================
 
 const SOURCES = {
@@ -13,7 +13,7 @@ const BLOCKED_GROUP_KEYWORDS = [
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
 
-// Danh sách các icon môn thể thao KHÔNG PHẢI bóng đá để loại bỏ
+// Icon môn thể thao KHÔNG PHẢI bóng đá để loại bỏ
 const OTHER_SPORTS_ICONS_REGEX = /[🏐🏀🎾🏈⚾🎱🏸🥊🏒🏉🎯🏎️🏎]/;
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
@@ -23,29 +23,47 @@ const FETCH_TIMEOUT = 6000;
 const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
 const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
 
-// --- API CONFIG FOR HOT MATCHES (Football-Data.org Free Tier) ---
+// --- API CONFIG FOR HOT MATCHES ---
 const FOOTBALL_DATA_API_KEY = "da4ee468a99c4bfd9953108f4241d612"; 
 const FOOTBALL_DATA_URL = "https://api.football-data.org/v4/matches";
 
-// Danh sách từ khóa các đội bóng lớn (Bảo đảm các trận đinh luôn lên HOT)
+// 1. Danh sách các GIẢI ĐẤU LỚN được phép xét HOT
+const TOP_COMPETITIONS = [
+  "world cup", "fifa world cup",
+  "european championship", "uefa euro", "euro",
+  "afc asian cup", "asian cup",
+  "copa america",
+  "uefa champions league", "champions league", 
+  "uefa europa league", "europa league", 
+  "uefa conference league", "conference league",
+  "premier league", 
+  "primera division", "la liga", 
+  "serie a", 
+  "bundesliga", 
+  "ligue 1", 
+  "fa cup", 
+  "copa del rey"
+];
+
+// 2. Danh sách CÁC ĐỘI BÓNG LỚN (Chỉ các trận có sự góp mặt của các đội này mới được lên HOT)
 const BIG_TEAMS = [
-  "real madrid", "barcelona", "atletico madrid", "bayern munchen", 
+  "real madrid", "barcelona", "atletico madrid", 
   "manchester united", "manchester city", "arsenal", "chelsea", "liverpool", "tottenham",
-  "juventus", "inter milan", "milan", "napoli", "roma", "lazio",
-  "paris saint germain", "borussia dortmund", "leverkusen", "rb leipzig",
-  "ajax", "porto", "benfica", "psv", "galatasaray", "fenerbahce"
+  "bayern munchen", "borussia dortmund", "leverkusen", "rb leipzig",
+  "juventus", "inter milan", "ac milan", "milan", "napoli", "as roma", "roma",
+  "paris saint germain", "psg",
+  "ajax", "benfica", "porto", "sporting cp"
 ];
 
 let cachedFixtures = null;
 let fixturesCacheTimestamp = 0;
-const FIXTURES_CACHE_TTL_MS = 2 * 3600 * 1000; // Cache lịch thi đấu API trong 2 tiếng
+const FIXTURES_CACHE_TTL_MS = 2 * 3600 * 1000; // Cache API 2 tiếng
 
-// --- CACHE CONFIG ---
 let cachedResult = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
 
-// --- PRE-COMPILE REGEX ---
+// --- PRE-COMPILE REGEX ALIASES ---
 const ALIASES = {
   "man dan": "manchester united",
   "quy do": "manchester united",
@@ -120,7 +138,7 @@ async function fetchFeaturedFixtures() {
       return hotMatches;
     }
   } catch (e) {
-    // Fallback an toàn nếu API lỗi
+    // Fallback an toàn
   }
   return cachedFixtures || [];
 }
@@ -179,7 +197,7 @@ function isMatchGroup(ch, group) {
   return directMatch || crossMatch;
 }
 
-// Kiểm tra trận HOT an toàn (Có bọc try...catch chống lỗi 500)
+// BỘ LỌC KÉP GIẢI ĐẤU + ĐỘI BÓNG LỚN LÊN HOT
 function isHotMatch(group, apiFixtures) {
   try {
     if (!group) return false;
@@ -193,22 +211,23 @@ function isHotMatch(group, apiFixtures) {
       return true;
     }
 
-    // 2. Kiểm tra trận đấu giữa 2 đội lớn (Big Teams vs Big Teams)
-    let countBigTeams = 0;
-    for (const team of BIG_TEAMS) {
-      if (fullTextCheck.includes(team)) {
-        countBigTeams++;
-      }
-    }
-    if (countBigTeams >= 2) {
-      return true;
+    // 2. Kiểm tra trận đấu có sự góp mặt của các Đội bóng lớn (Big Teams)
+    const hasBigTeam = BIG_TEAMS.some(team => fullTextCheck.includes(team));
+    if (!hasBigTeam) {
+      return false; // Nếu không có đội bóng lớn nào tham gia -> Bỏ qua nhãn HOT
     }
 
-    // 3. Fallback kiểm tra qua API Football-Data
+    // 3. Kiểm tra qua API xem trận đó có thuộc Giải đấu lớn (Top Competitions) không
     if (!apiFixtures || !Array.isArray(apiFixtures) || apiFixtures.length === 0) return false;
     
     for (const fix of apiFixtures) {
       if (!fix) continue;
+      
+      const compName = standardizeName(fix.competition || "");
+      const isTopComp = TOP_COMPETITIONS.some(comp => compName.includes(comp));
+      
+      if (!isTopComp) continue;
+
       const fixHome = standardizeName(fix.homeTeam || "");
       const fixAway = standardizeName(fix.awayTeam || "");
 
@@ -222,7 +241,7 @@ function isHotMatch(group, apiFixtures) {
       }
     }
   } catch (e) {
-    // Bắt lỗi ngầm tránh làm sập server
+    // Bắt lỗi ngầm tránh crash 500
   }
   return false;
 }
