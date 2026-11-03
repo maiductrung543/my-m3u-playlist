@@ -236,7 +236,12 @@ function processM3UText(text) {
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
-            if (!isBlocked && !isFlv && !hasOtherSportIcon) {
+            // Lọc U19 (Bỏ tất cả U19, trừ U19 Việt Nam)
+            const isU19 = /\bu19\b/i.test(title);
+            const isVietnam = /viet\s*nam|vn\b/i.test(title);
+            const skipU19 = isU19 && !isVietnam;
+
+            if (!isBlocked && !isFlv && !hasOtherSportIcon && !skipU19) {
               const dt = extractDateTime(title);
               let skipMatch = false;
 
@@ -380,40 +385,12 @@ export default async function handler(req, res) {
       } catch (e) {}
     });
 
-    const hotGroups = [];
-    const normalGroups = [];
-
-    groupsList.forEach(group => {
-      if (isHotMatch(group, apiFixtures)) {
-        hotGroups.push(group);
-      } else {
-        normalGroups.push(group);
-      }
-    });
-
-    hotGroups.sort((a, b) => a.timeMs - b.timeMs);
-    normalGroups.sort((a, b) => a.timeMs - b.timeMs);
+    // Sắp xếp tất cả các trận đấu theo đúng thứ tự ngày giờ bình thường
+    groupsList.sort((a, b) => a.timeMs - b.timeMs);
 
     const parts = [];
 
-    // 1. NHÓM ẢO TRẬN TÂM ĐIỂM - TRẬN HOT (Đưa lên đầu tiên)
-    if (hotGroups.length > 0) {
-      for (const group of hotGroups) {
-        const groupTitle = `🔥 TRẬN TÂM ĐIỂM - TRẬN HOT  🔥 [${group.timeStr}] ${group.displayNameOut}`;
-        group.streams.forEach((ch) => {
-          let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
-          let cleanTeamA = ch.rawTeamA.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
-          let cleanTeamB = ch.rawTeamB.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
-          let iconStr = ch.sportIcon ? `${ch.sportIcon} ` : "";
-          
-          let channelName = `[${ch.blvName}] ${iconStr}${cleanTeamA} vs ${cleanTeamB}`;
-          let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${channelName}`;
-          parts.push(`${newExtinf}\n${ch.url}`);
-        });
-      }
-    }
-
-    // 2. Nhóm Truyền hình
+    // 1. Nhóm Truyền hình
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
@@ -422,13 +399,16 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3. Trạng thái hệ thống
+    // 2. Trạng thái hệ thống
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
-    // 4. Danh sách các trận bóng đá bình thường còn lại
-    for (const group of normalGroups) {
-      const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
+    // 3. Danh sách các trận bóng đá (Sắp xếp theo thời gian chuẩn, trận hot có nhãn 🔥 HOT 🔥)
+    for (const group of groupsList) {
+      const isHot = isHotMatch(group, apiFixtures);
+      const groupTitle = isHot 
+        ? `🔥 HOT 🔥 [${group.timeStr}] ${group.displayNameOut}` 
+        : `[${group.timeStr}] ${group.displayNameOut}`; 
       
       group.streams.forEach((ch) => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
