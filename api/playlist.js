@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only + Hot Matches API)
+//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only + Hot Matches API + VN Teams)
 // ============================================================
 
 const SOURCES = {
@@ -27,6 +27,13 @@ const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 
 const FOOTBALL_DATA_API_KEY = "da4ee468a99c4bfd9953108f4241d612"; 
 const FOOTBALL_DATA_URL = "https://api.football-data.org/v4/matches";
 
+// Danh sách các giải đấu lớn được ưu tiên xét HOT từ API (tránh giải cỏ/hạng dưới)
+const TOP_COMPETITIONS = [
+  "uefa champions league", "champions league", "premier league", 
+  "primera division", "la liga", "serie a", "bundesliga", 
+  "ligue 1", "europa league", "fa cup", "copa del rey"
+];
+
 let cachedFixtures = null;
 let fixturesCacheTimestamp = 0;
 const FIXTURES_CACHE_TTL_MS = 2 * 3600 * 1000; // Cache lịch thi đấu API trong 2 tiếng
@@ -45,7 +52,7 @@ const ALIASES = {
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
   "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
-  "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
+  "atletico": "atletico madrid", "atleti": "atletico madrid", "atl madrid": "atletico madrid", "a madrid": "atletico madrid",
   "ath bilbao": "athletic bilbao", "ath": "athletic", "atl": "atletico",
   "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
   "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
@@ -104,7 +111,7 @@ async function fetchFeaturedFixtures() {
         return {
           homeTeam: standardizeName(m.homeTeam.name),
           awayTeam: standardizeName(m.awayTeam.name),
-          competition: m.competition.name
+          competition: standardizeName(m.competition.name)
         };
       });
       cachedFixtures = hotMatches;
@@ -172,11 +179,23 @@ function isMatchGroup(ch, group) {
   return directMatch || crossMatch;
 }
 
-// Kiểm tra xem trận đấu có khớp với danh sách trận hot từ API hay không
+// Kiểm tra xem trận đấu có khớp với danh sách trận hot từ API hoặc có phải ĐT Việt Nam không
 function isHotMatch(group, apiFixtures) {
+  const fullTextCheck = standardizeName(`${group.cleanA} ${group.cleanB}`);
+
+  // 1. TỰ ĐỘNG GÁN NHẬN HOT CHO ĐỘI TUYỂN VIỆT NAM (Từ U22, U23 đến ĐTQG)
+  const isVietnamTeam = /viet\s*nam|vn\b|u22\s*vietnam|u23\s*vietnam|doi\s*tuyen/i.test(fullTextCheck);
+  if (isVietnamTeam) {
+    return true;
+  }
+
   if (!apiFixtures || apiFixtures.length === 0) return false;
   
   for (const fix of apiFixtures) {
+    // Kiểm tra xem giải đấu có thuộc nhóm các giải lớn hàng đầu hay không
+    const isTopComp = TOP_COMPETITIONS.some(comp => fix.competition.includes(comp));
+    if (!isTopComp) continue; // Bỏ qua nếu là giải cỏ/hạng dưới
+
     const matchHome = group.cleanA.includes(fix.homeTeam) || fix.homeTeam.includes(group.cleanA);
     const matchAway = group.cleanB.includes(fix.awayTeam) || fix.awayTeam.includes(group.cleanB);
     const crossHome = group.cleanA.includes(fix.awayTeam) || fix.awayTeam.includes(group.cleanA);
