@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - DOUBLE FILTER HOT MATCHES (Safe Error Handling)
+//  M3U Aggregator - BONGDAPLUS SCRAPER & STRICT DUAL HOT MATCH
 // ============================================================
 
 const SOURCES = {
@@ -7,6 +7,8 @@ const SOURCES = {
   thtt:   "https://thtt.pages.dev/tttt.m3u",
   xoiche: "https://tinyurl.com/xoiche1",
 };
+
+const BONGDAPLUS_URL = "https://bongdaplus.vn/";
 
 const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
@@ -23,45 +25,23 @@ const FETCH_TIMEOUT = 6000;
 const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
 const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
 
-// --- API CONFIG FOR HOT MATCHES ---
-const FOOTBALL_DATA_API_KEY = "da4ee468a99c4bfd9953108f4241d612"; 
-const FOOTBALL_DATA_URL = "https://api.football-data.org/v4/matches";
-
-// 1. Danh sách các GIẢI ĐẤU LỚN được phép xét HOT
-const TOP_COMPETITIONS = [
-  "world cup", "fifa world cup",
-  "european championship", "uefa euro", "euro",
-  "afc asian cup", "asian cup",
-  "copa america",
-  "uefa champions league", "champions league", 
-  "uefa europa league", "europa league", 
-  "uefa conference league", "conference league",
-  "premier league", 
-  "primera division", "la liga", 
-  "serie a", 
-  "bundesliga", 
-  "ligue 1", 
-  "fa cup", 
-  "copa del rey"
-];
-
-// 2. Danh sách CÁC ĐỘI BÓNG LỚN (Chỉ các trận có sự góp mặt của các đội này mới được lên HOT)
+// --- DÙNG DỰ PHÒNG KHI BONGDAPLUS LỖI (CẢ 2 ĐỘI PHẢI LỚN) ---
 const BIG_TEAMS = [
   "real madrid", "barcelona", "atletico madrid", 
-  "manchester united", "manchester city", "arsenal", "chelsea", "liverpool", "tottenham",
-  "bayern munchen", "borussia dortmund", "leverkusen", "rb leipzig",
-  "juventus", "inter milan", "ac milan", "milan", "napoli", "as roma", "roma",
+  "manchester united", "manchester city", "arsenal", "chelsea", "liverpool", "tottenham", "newcastle",
+  "bayern munchen", "bayern munich", "borussia dortmund", "dortmund", "leverkusen", "rb leipzig",
+  "juventus", "inter milan", "ac milan", "milan", "napoli", "as roma", "roma", "lazio",
   "paris saint germain", "psg",
   "ajax", "benfica", "porto", "sporting cp"
 ];
 
-let cachedFixtures = null;
-let fixturesCacheTimestamp = 0;
-const FIXTURES_CACHE_TTL_MS = 2 * 3600 * 1000; // Cache API 2 tiếng
+let cachedHotFixtures = null;
+let hotCacheTimestamp = 0;
+const HOT_CACHE_TTL_MS = 30 * 60 * 1000; // Cache trận HOT trong 30 phút
 
 let cachedResult = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
+const CACHE_TTL_MS = 90 * 1000; // Cache m3u 90 giây
 
 // --- PRE-COMPILE REGEX ALIASES ---
 const ALIASES = {
@@ -70,13 +50,14 @@ const ALIASES = {
   "man city": "manchester city", "man utd": "manchester united", "man united": "manchester united",
   "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
-  "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
-  "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
-  "atletico": "atletico madrid", "atleti": "atletico madrid", "atl madrid": "atletico madrid", "a madrid": "atletico madrid",
-  "ath bilbao": "athletic bilbao", "ath": "athletic", "atl": "atletico",
-  "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
-  "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
-  "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
+  "psg": "paris saint germain", "bayern": "bayern munchen", "bayern munich": "bayern munchen", 
+  "dortmund": "borussia dortmund", "monchengladbach": "gladbach", "inter": "inter milan", 
+  "ac milan": "milan", "juve": "juventus", "atletico": "atletico madrid", "atleti": "atletico madrid", 
+  "atl madrid": "atletico madrid", "a madrid": "atletico madrid", "ath bilbao": "athletic bilbao", 
+  "ath": "athletic", "atl": "atletico", "real": "real madrid", "barca": "barcelona", 
+  "sociedad": "real sociedad", "betis": "real betis", "vallecano": "rayo vallecano", 
+  "ny red bulls": "new york red bulls", "paris fc": "paris fc", "eintracht": "eintracht frankfurt", 
+  "dep a coruna": "deportivo la coruna"
 };
 
 const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
@@ -88,7 +69,7 @@ const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champion
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
 
 // ============================================================
-//  Helpers
+//  Helpers & Scraper
 // ============================================================
 
 async function fetchSafe(url, options = {}) {
@@ -108,39 +89,40 @@ async function fetchSafe(url, options = {}) {
   }
 }
 
-async function fetchFeaturedFixtures() {
+// CÀO TRẬN HOT TỪ BONGDAPLUS
+async function fetchHotFromBongdaplus() {
   const now = Date.now();
-  if (cachedFixtures && (now - fixturesCacheTimestamp < FIXTURES_CACHE_TTL_MS)) {
-    return cachedFixtures;
-  }
-
-  if (!FOOTBALL_DATA_API_KEY || FOOTBALL_DATA_API_KEY === "YOUR_API_KEY_HERE") {
-    return [];
+  if (cachedHotFixtures && (now - hotCacheTimestamp < HOT_CACHE_TTL_MS)) {
+    return cachedHotFixtures;
   }
 
   try {
-    const resText = await fetchSafe(FOOTBALL_DATA_URL, {
-      headers: { "X-Auth-Token": FOOTBALL_DATA_API_KEY }
-    });
-    if (!resText) return cachedFixtures || [];
+    const html = await fetchSafe(BONGDAPLUS_URL);
+    if (!html) return cachedHotFixtures || [];
 
-    const data = JSON.parse(resText);
-    if (data && data.matches) {
-      const hotMatches = data.matches.map(m => {
-        return {
-          homeTeam: standardizeName(m?.homeTeam?.name || ""),
-          awayTeam: standardizeName(m?.awayTeam?.name || ""),
-          competition: standardizeName(m?.competition?.name || "")
-        };
-      });
-      cachedFixtures = hotMatches;
-      fixturesCacheTimestamp = now;
-      return hotMatches;
+    const hotList = [];
+    // Bắt các cụm tiêu đề có định dạng "Đội A vs Đội B" hoặc "Đội A - Đội B" trong các khối tin tâm điểm
+    const vsRegex = /([A-ZÀ-Ỹa-zà-ỹ0-9\s]{2,25})\s+(?:vs\.?|v\.?|versus|-)\s+([A-ZÀ-Ỹa-zà-ỹ0-9\s]{2,25})/gi;
+    let match;
+
+    while ((match = vsRegex.exec(html)) !== null) {
+      const rawA = match[1].trim();
+      const rawB = match[2].trim();
+      
+      const cleanA = cleanAndAliasTeam(rawA);
+      const cleanB = cleanAndAliasTeam(rawB);
+
+      if (cleanA && cleanB && cleanA !== cleanB && cleanA.length >= 3 && cleanB.length >= 3) {
+        hotList.push({ cleanA, cleanB });
+      }
     }
+
+    cachedHotFixtures = hotList;
+    hotCacheTimestamp = now;
+    return hotList;
   } catch (e) {
-    // Fallback an toàn
+    return cachedHotFixtures || [];
   }
-  return cachedFixtures || [];
 }
 
 function standardizeName(name) {
@@ -197,8 +179,8 @@ function isMatchGroup(ch, group) {
   return directMatch || crossMatch;
 }
 
-// BỘ LỌC KÉP GIẢI ĐẤU + ĐỘI BÓNG LỚN LÊN HOT
-function isHotMatch(group, apiFixtures) {
+// BỘ LỌC NGHIÊM NGẶT - CHỈ BẬT HOT KHI CẢ 2 ĐỘI CÙNG KHỚP
+function isHotMatch(group, scrapedHotMatches) {
   try {
     if (!group) return false;
     const cleanA = group.cleanA || "";
@@ -211,37 +193,30 @@ function isHotMatch(group, apiFixtures) {
       return true;
     }
 
-    // 2. Kiểm tra trận đấu có sự góp mặt của các Đội bóng lớn (Big Teams)
-    const hasBigTeam = BIG_TEAMS.some(team => fullTextCheck.includes(team));
-    if (!hasBigTeam) {
-      return false; // Nếu không có đội bóng lớn nào tham gia -> Bỏ qua nhãn HOT
-    }
+    // 2. Kiểm tra theo danh sách cào từ Bongdaplus (BẮT BUỘC KHỚP CẢ 2 ĐỘI)
+    if (scrapedHotMatches && scrapedHotMatches.length > 0) {
+      for (const fix of scrapedHotMatches) {
+        const matchDirect = (cleanA.includes(fix.cleanA) || fix.cleanA.includes(cleanA)) && 
+                            (cleanB.includes(fix.cleanB) || fix.cleanB.includes(cleanB));
+        const matchCross =  (cleanA.includes(fix.cleanB) || fix.cleanB.includes(cleanA)) && 
+                            (cleanB.includes(fix.cleanA) || fix.cleanA.includes(cleanB));
 
-    // 3. Kiểm tra qua API xem trận đó có thuộc Giải đấu lớn (Top Competitions) không
-    if (!apiFixtures || !Array.isArray(apiFixtures) || apiFixtures.length === 0) return false;
-    
-    for (const fix of apiFixtures) {
-      if (!fix) continue;
-      
-      const compName = standardizeName(fix.competition || "");
-      const isTopComp = TOP_COMPETITIONS.some(comp => compName.includes(comp));
-      
-      if (!isTopComp) continue;
-
-      const fixHome = standardizeName(fix.homeTeam || "");
-      const fixAway = standardizeName(fix.awayTeam || "");
-
-      const matchHome = cleanA.includes(fixHome) || fixHome.includes(cleanA);
-      const matchAway = cleanB.includes(fixAway) || fixAway.includes(cleanB);
-      const crossHome = cleanA.includes(fixAway) || fixAway.includes(cleanA);
-      const crossAway = cleanB.includes(fixHome) || fixHome.includes(cleanB);
-
-      if ((matchHome && matchAway) || (crossHome && crossAway)) {
-        return true;
+        if (matchDirect || matchCross) {
+          return true;
+        }
       }
     }
+
+    // 3. CHIẾN LƯỢC DỰ PHÒNG: Kiểm tra mảng BIG_TEAMS (BẮT BUỘC CẢ 2 ĐỘI ĐỀU LỚN)
+    const hasBigTeamA = BIG_TEAMS.some(team => new RegExp(`\\b${team}\\b`, 'i').test(cleanA));
+    const hasBigTeamB = BIG_TEAMS.some(team => new RegExp(`\\b${team}\\b`, 'i').test(cleanB));
+
+    if (hasBigTeamA && hasBigTeamB) {
+      return true;
+    }
+
   } catch (e) {
-    // Bắt lỗi ngầm tránh crash 500
+    // Tránh crash code
   }
   return false;
 }
@@ -382,11 +357,11 @@ export default async function handler(req, res) {
 
     let combined = "#EXTM3U\n"; 
 
-    const [textXiaomi, textThTT, textXoiChe, apiFixtures] = await Promise.all([
+    const [textXiaomi, textThTT, textXoiChe, scrapedHotMatches] = await Promise.all([
       fetchSafe(SOURCES.xiaomi), 
       fetchSafe(SOURCES.thtt), 
       fetchSafe(SOURCES.xoiche),
-      fetchFeaturedFixtures()
+      fetchHotFromBongdaplus()
     ]);
 
     let updateTime = "";
@@ -457,7 +432,7 @@ export default async function handler(req, res) {
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     for (const group of groupsList) {
-      const isHot = isHotMatch(group, apiFixtures);
+      const isHot = isHotMatch(group, scrapedHotMatches);
       const groupTitle = isHot 
         ? `🔥 HOT 🔥 [${group.timeStr}] ${group.displayNameOut}` 
         : `[${group.timeStr}] ${group.displayNameOut}`; 
