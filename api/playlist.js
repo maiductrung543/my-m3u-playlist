@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - BONGDAPLUS SCRAPER & STRICT DUAL HOT MATCH
+//  M3U Aggregator - STRICT DUAL BIG TEAMS & 💥 𝐇𝐎𝐓 💥 BADGE
 // ============================================================
 
 const SOURCES = {
@@ -7,8 +7,6 @@ const SOURCES = {
   thtt:   "https://thtt.pages.dev/tttt.m3u",
   xoiche: "https://tinyurl.com/xoiche1",
 };
-
-const BONGDAPLUS_URL = "https://bongdaplus.vn/";
 
 const BLOCKED_GROUP_KEYWORDS = [
   "chuoichien", "saoke", "xoilac", "sutbong", "phalangtv", 
@@ -25,19 +23,25 @@ const FETCH_TIMEOUT = 6000;
 const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
 const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
 
-// --- DÙNG DỰ PHÒNG KHI BONGDAPLUS LỖI (CẢ 2 ĐỘI PHẢI LỚN) ---
+// --- DANH SÁCH BIG TEAMS (CLB LỚN & ĐỘI TUYỂN QUỐC GIA HÀNG ĐẦU) ---
 const BIG_TEAMS = [
-  "real madrid", "barcelona", "atletico madrid", 
+  // CLB Ngoại hạng Anh
   "manchester united", "manchester city", "arsenal", "chelsea", "liverpool", "tottenham", "newcastle",
-  "bayern munchen", "bayern munich", "borussia dortmund", "dortmund", "leverkusen", "rb leipzig",
+  // CLB La Liga
+  "real madrid", "barcelona", "atletico madrid", "athletic bilbao", "real sociedad",
+  // CLB Serie A
   "juventus", "inter milan", "ac milan", "milan", "napoli", "as roma", "roma", "lazio",
-  "paris saint germain", "psg",
-  "ajax", "benfica", "porto", "sporting cp"
+  // CLB Bundesliga
+  "bayern munchen", "bayern munich", "borussia dortmund", "dortmund", "leverkusen", "rb leipzig",
+  // CLB Ligue 1 & Khác
+  "paris saint germain", "psg", "ajax", "benfica", "porto", "sporting cp",
+  
+  // Đội tuyển Quốc gia hàng đầu Thế giới & Châu Âu
+  "vietnam", "u22 vietnam", "u23 vietnam", "doi tuyen vietnam",
+  "brazil", "argentina", "france", "england", "germany", "spain", "portugal", "italy", "netherlands", "belgium", "croatia",
+  "uruguay", "denmark", "switzerland", "sweden", "poland", "serbia",
+  "japan", "south korea", "saudi arabia", "australia", "morocco", "senegal", "cameroon", "nigeria"
 ];
-
-let cachedHotFixtures = null;
-let hotCacheTimestamp = 0;
-const HOT_CACHE_TTL_MS = 30 * 60 * 1000; // Cache trận HOT trong 30 phút
 
 let cachedResult = null;
 let cacheTimestamp = 0;
@@ -57,7 +61,8 @@ const ALIASES = {
   "ath": "athletic", "atl": "atletico", "real": "real madrid", "barca": "barcelona", 
   "sociedad": "real sociedad", "betis": "real betis", "vallecano": "rayo vallecano", 
   "ny red bulls": "new york red bulls", "paris fc": "paris fc", "eintracht": "eintracht frankfurt", 
-  "dep a coruna": "deportivo la coruna"
+  "dep a coruna": "deportivo la coruna",
+  "dtvn": "vietnam", "tuyen viet nam": "vietnam"
 };
 
 const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
@@ -65,11 +70,11 @@ const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
   val: v
 }));
 
-const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g;
+const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league|giao huu|friendly)\b/g;
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
 
 // ============================================================
-//  Helpers & Scraper
+//  Helpers
 // ============================================================
 
 async function fetchSafe(url, options = {}) {
@@ -86,42 +91,6 @@ async function fetchSafe(url, options = {}) {
     return await res.text();
   } catch {
     return "";
-  }
-}
-
-// CÀO TRẬN HOT TỪ BONGDAPLUS
-async function fetchHotFromBongdaplus() {
-  const now = Date.now();
-  if (cachedHotFixtures && (now - hotCacheTimestamp < HOT_CACHE_TTL_MS)) {
-    return cachedHotFixtures;
-  }
-
-  try {
-    const html = await fetchSafe(BONGDAPLUS_URL);
-    if (!html) return cachedHotFixtures || [];
-
-    const hotList = [];
-    // Bắt các cụm tiêu đề có định dạng "Đội A vs Đội B" hoặc "Đội A - Đội B" trong các khối tin tâm điểm
-    const vsRegex = /([A-ZÀ-Ỹa-zà-ỹ0-9\s]{2,25})\s+(?:vs\.?|v\.?|versus|-)\s+([A-ZÀ-Ỹa-zà-ỹ0-9\s]{2,25})/gi;
-    let match;
-
-    while ((match = vsRegex.exec(html)) !== null) {
-      const rawA = match[1].trim();
-      const rawB = match[2].trim();
-      
-      const cleanA = cleanAndAliasTeam(rawA);
-      const cleanB = cleanAndAliasTeam(rawB);
-
-      if (cleanA && cleanB && cleanA !== cleanB && cleanA.length >= 3 && cleanB.length >= 3) {
-        hotList.push({ cleanA, cleanB });
-      }
-    }
-
-    cachedHotFixtures = hotList;
-    hotCacheTimestamp = now;
-    return hotList;
-  } catch (e) {
-    return cachedHotFixtures || [];
   }
 }
 
@@ -179,35 +148,21 @@ function isMatchGroup(ch, group) {
   return directMatch || crossMatch;
 }
 
-// BỘ LỌC NGHIÊM NGẶT - CHỈ BẬT HOT KHI CẢ 2 ĐỘI CÙNG KHỚP
-function isHotMatch(group, scrapedHotMatches) {
+// BỘ LỌC NGHIÊM NGẶT - CẢ 2 ĐỘI PHẢI LỚN HOẶC CÓ VIỆT NAM
+function isHotMatch(group) {
   try {
     if (!group) return false;
     const cleanA = group.cleanA || "";
     const cleanB = group.cleanB || "";
     const fullTextCheck = standardizeName(`${cleanA} ${cleanB}`);
 
-    // 1. Tự động gán nhãn HOT cho Đội tuyển Việt Nam (U22, U23, ĐTQG)
+    // Ưu tiên tuyệt đối cho Đội tuyển Việt Nam
     const isVietnamTeam = /viet\s*nam|vn\b|u22\s*vietnam|u23\s*vietnam|doi\s*tuyen/i.test(fullTextCheck);
     if (isVietnamTeam) {
       return true;
     }
 
-    // 2. Kiểm tra theo danh sách cào từ Bongdaplus (BẮT BUỘC KHỚP CẢ 2 ĐỘI)
-    if (scrapedHotMatches && scrapedHotMatches.length > 0) {
-      for (const fix of scrapedHotMatches) {
-        const matchDirect = (cleanA.includes(fix.cleanA) || fix.cleanA.includes(cleanA)) && 
-                            (cleanB.includes(fix.cleanB) || fix.cleanB.includes(cleanB));
-        const matchCross =  (cleanA.includes(fix.cleanB) || fix.cleanB.includes(cleanA)) && 
-                            (cleanB.includes(fix.cleanA) || fix.cleanA.includes(cleanB));
-
-        if (matchDirect || matchCross) {
-          return true;
-        }
-      }
-    }
-
-    // 3. CHIẾN LƯỢC DỰ PHÒNG: Kiểm tra mảng BIG_TEAMS (BẮT BUỘC CẢ 2 ĐỘI ĐỀU LỚN)
+    // Kiểm tra CẢ 2 ĐỘI PHẢI CÙNG NẰM TRONG MẢNG BIG_TEAMS
     const hasBigTeamA = BIG_TEAMS.some(team => new RegExp(`\\b${team}\\b`, 'i').test(cleanA));
     const hasBigTeamB = BIG_TEAMS.some(team => new RegExp(`\\b${team}\\b`, 'i').test(cleanB));
 
@@ -215,15 +170,136 @@ function isHotMatch(group, scrapedHotMatches) {
       return true;
     }
 
-  } catch (e) {
-    // Tránh crash code
-  }
+  } catch (e) {}
   return false;
 }
 
 // ============================================================
-//  Core Logic
+//  Handler
 // ============================================================
+
+export default async function handler(req, res) {
+  try {
+    const currentTime = Date.now();
+
+    if (cachedResult && (currentTime - cacheTimestamp < CACHE_TTL_MS)) {
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      return res.status(200).send(cachedResult);
+    }
+
+    let combined = "#EXTM3U\n"; 
+
+    const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
+      fetchSafe(SOURCES.xiaomi), 
+      fetchSafe(SOURCES.thtt), 
+      fetchSafe(SOURCES.xoiche)
+    ]);
+
+    let updateTime = "";
+    try {
+        const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{2,4})[^"]*)"/i);
+        if (timeUpdateMatch) {
+            let rawTime = timeUpdateMatch[1].replace(/Updated|Cập nhật|Cap nhat/gi, '').trim();
+            rawTime = rawTime.replace(/\b(\d{2})(\d{2})\b/g, '$1:$2');
+            updateTime = rawTime.replace(/^[:\-\s]+/, ''); 
+        }
+    } catch (e) {}
+
+    const resXiaomi = processM3UText(textXiaomi);
+    const resThTT = processM3UText(textThTT);
+    const resXoiChe = processM3UText(textXoiChe);
+
+    const allMatches = [...resXiaomi.matches, ...resThTT.matches, ...resXoiChe.matches];
+    const allOthers = [...resXiaomi.others, ...resThTT.others, ...resXoiChe.others];
+
+    const groupsList = []; 
+
+    allMatches.forEach(ch => {
+      try {
+        let foundGroup = null;
+        for (const group of groupsList) {
+          if (isMatchGroup(ch, group)) {
+            foundGroup = group; 
+            break;
+          }
+        }
+        
+        if (foundGroup) {
+          const isDuplicateUrl = foundGroup.streams.some(s => s.url === ch.url);
+          if (!isDuplicateUrl) {
+             foundGroup.streams.push(ch);
+          }
+          if (ch.displayNameOut.length > foundGroup.displayNameOut.length) {
+             foundGroup.displayNameOut = ch.displayNameOut;
+             foundGroup.rawTeamA = ch.rawTeamA;
+             foundGroup.rawTeamB = ch.rawTeamB;
+             if (ch.sportIcon) foundGroup.sportIcon = ch.sportIcon;
+          }
+        } else {
+          groupsList.push({ 
+            cleanA: ch.cleanA, cleanB: ch.cleanB, 
+            displayNameOut: ch.displayNameOut, 
+            rawTeamA: ch.rawTeamA, rawTeamB: ch.rawTeamB,
+            sportIcon: ch.sportIcon,
+            timeStr: ch.timeStr, timeMs: ch.timeMs, streams: [ch] 
+          });
+        }
+      } catch (e) {}
+    });
+
+    groupsList.sort((a, b) => a.timeMs - b.timeMs);
+
+    const parts = [];
+
+    if (allOthers.length > 0) {
+      allOthers.forEach(ch => {
+        let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
+        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="📺 Truyền Hình",${ch.title}`;
+        parts.push(`${newExtinf}\n${ch.url}`);
+      });
+    }
+
+    const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
+    parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
+
+    for (const group of groupsList) {
+      const isHot = isHotMatch(group);
+      // ÁP DỤNG STICKER 💥 𝐇𝐎𝐓 💥
+      const groupTitle = isHot 
+        ? `💥 𝐇𝐎𝐓 💥 [${group.timeStr}] ${group.displayNameOut}` 
+        : `[${group.timeStr}] ${group.displayNameOut}`; 
+      
+      group.streams.forEach((ch) => {
+        let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
+        let cleanTeamA = ch.rawTeamA.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
+        let cleanTeamB = ch.rawTeamB.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
+        let iconStr = ch.sportIcon ? `${ch.sportIcon} ` : "";
+        
+        let channelName = `[${ch.blvName}] ${iconStr}${cleanTeamA} vs ${cleanTeamB}`;
+        
+        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${channelName}`;
+        parts.push(`${newExtinf}\n${ch.url}`);
+      });
+    }
+
+    combined = "#EXTM3U\n" + parts.join("\n\n");
+    combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+
+    cachedResult = combined;
+    cacheTimestamp = Date.now();
+
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
+    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.status(200).send(combined);
+
+  } catch (err) {
+    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+    return res.status(200).send("#EXTM3U\n#EXTINF:-1 group-title=\"📺 Truyền Hình\",Lỗi hệ thống tạm thời\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm\n");
+  }
+}
 
 function processM3UText(text) {
   const matches = [];
@@ -301,8 +377,11 @@ function processM3UText(text) {
                   let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
 
                   let blvName = "Live";
-                  const blvMatch = title.match(/\((.*?)\)/);
+                  const blvMatch = title.match(/\((.*?)\);/);
                   if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
+                  // Sửa nhỏ bắt BLV an toàn hơn nếu có dấu ngoặc
+                  const altBlvMatch = title.match(/\(([^)]+)\)/);
+                  if (altBlvMatch && !blvName) blvName = altBlvMatch[1].replace(/\[.*?\]/g, '').trim();
 
                   const now = new Date();
                   matches.push({ 
@@ -317,7 +396,7 @@ function processM3UText(text) {
                     sportIcon: sportIcon,
                     timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
                     timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
-                    blvName: blvName
+                    blvName: blvName || "Live"
                   });
                 } else {
                   if (/truyen hinh/i.test(standardizeName(originalGroup))) {
@@ -338,131 +417,4 @@ function processM3UText(text) {
     }
   } catch (globalErr) {}
   return { matches, others };
-}
-
-// ============================================================
-//  Handler
-// ============================================================
-
-export default async function handler(req, res) {
-  try {
-    const currentTime = Date.now();
-
-    if (cachedResult && (currentTime - cacheTimestamp < CACHE_TTL_MS)) {
-      res.setHeader("Cache-Control", "public, max-age=60");
-      res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      return res.status(200).send(cachedResult);
-    }
-
-    let combined = "#EXTM3U\n"; 
-
-    const [textXiaomi, textThTT, textXoiChe, scrapedHotMatches] = await Promise.all([
-      fetchSafe(SOURCES.xiaomi), 
-      fetchSafe(SOURCES.thtt), 
-      fetchSafe(SOURCES.xoiche),
-      fetchHotFromBongdaplus()
-    ]);
-
-    let updateTime = "";
-    try {
-        const timeUpdateMatch = textThTT.match(/group-title="([^"]*(?:Updated|Cập nhật|Cap nhat|\d{2,4})[^"]*)"/i);
-        if (timeUpdateMatch) {
-            let rawTime = timeUpdateMatch[1].replace(/Updated|Cập nhật|Cap nhat/gi, '').trim();
-            rawTime = rawTime.replace(/\b(\d{2})(\d{2})\b/g, '$1:$2');
-            updateTime = rawTime.replace(/^[:\-\s]+/, ''); 
-        }
-    } catch (e) {}
-
-    const resXiaomi = processM3UText(textXiaomi);
-    const resThTT = processM3UText(textThTT);
-    const resXoiChe = processM3UText(textXoiChe);
-
-    const allMatches = [...resXiaomi.matches, ...resThTT.matches, ...resXoiChe.matches];
-    const allOthers = [...resXiaomi.others, ...resThTT.others, ...resXoiChe.others];
-
-    const groupsList = []; 
-
-    allMatches.forEach(ch => {
-      try {
-        let foundGroup = null;
-        for (const group of groupsList) {
-          if (isMatchGroup(ch, group)) {
-            foundGroup = group; 
-            break;
-          }
-        }
-        
-        if (foundGroup) {
-          const isDuplicateUrl = foundGroup.streams.some(s => s.url === ch.url);
-          if (!isDuplicateUrl) {
-             foundGroup.streams.push(ch);
-          }
-          if (ch.displayNameOut.length > foundGroup.displayNameOut.length) {
-             foundGroup.displayNameOut = ch.displayNameOut;
-             foundGroup.rawTeamA = ch.rawTeamA;
-             foundGroup.rawTeamB = ch.rawTeamB;
-             if (ch.sportIcon) foundGroup.sportIcon = ch.sportIcon;
-          }
-        } else {
-          groupsList.push({ 
-            cleanA: ch.cleanA, cleanB: ch.cleanB, 
-            displayNameOut: ch.displayNameOut, 
-            rawTeamA: ch.rawTeamA, rawTeamB: ch.rawTeamB,
-            sportIcon: ch.sportIcon,
-            timeStr: ch.timeStr, timeMs: ch.timeMs, streams: [ch] 
-          });
-        }
-      } catch (e) {}
-    });
-
-    groupsList.sort((a, b) => a.timeMs - b.timeMs);
-
-    const parts = [];
-
-    if (allOthers.length > 0) {
-      allOthers.forEach(ch => {
-        let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
-        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="📺 Truyền Hình",${ch.title}`;
-        parts.push(`${newExtinf}\n${ch.url}`);
-      });
-    }
-
-    const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
-    parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
-
-    for (const group of groupsList) {
-      const isHot = isHotMatch(group, scrapedHotMatches);
-      const groupTitle = isHot 
-        ? `🔥 HOT 🔥 [${group.timeStr}] ${group.displayNameOut}` 
-        : `[${group.timeStr}] ${group.displayNameOut}`; 
-      
-      group.streams.forEach((ch) => {
-        let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
-        let cleanTeamA = ch.rawTeamA.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
-        let cleanTeamB = ch.rawTeamB.replace(/^[\/⚽🏐🏀🎾🏈⚾\s]+/g, '').trim();
-        let iconStr = ch.sportIcon ? `${ch.sportIcon} ` : "";
-        
-        let channelName = `[${ch.blvName}] ${iconStr}${cleanTeamA} vs ${cleanTeamB}`;
-        
-        let newExtinf = `#EXTINF:-1 ${logoAttr}group-title="${groupTitle}",${channelName}`;
-        parts.push(`${newExtinf}\n${ch.url}`);
-      });
-    }
-
-    combined = "#EXTM3U\n" + parts.join("\n\n");
-    combined = combined.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
-
-    cachedResult = combined;
-    cacheTimestamp = Date.now();
-
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
-    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    return res.status(200).send(combined);
-
-  } catch (err) {
-    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-    return res.status(200).send("#EXTM3U\n#EXTINF:-1 group-title=\"📺 Truyền Hình\",Lỗi hệ thống tạm thời\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm\n");
-  }
 }
