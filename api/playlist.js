@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - STRICT DUAL BIG TEAMS & 💥 𝐇𝐎𝐓 💥 BADGE
+//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only)
 // ============================================================
 
 const SOURCES = {
@@ -13,7 +13,7 @@ const BLOCKED_GROUP_KEYWORDS = [
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
 
-// Icon môn thể thao KHÔNG PHẢI bóng đá để loại bỏ
+// Danh sách các icon môn thể thao KHÔNG PHẢI bóng đá để loại bỏ
 const OTHER_SPORTS_ICONS_REGEX = /[🏐🏀🎾🏈⚾🎱🏸🥊🏒🏉🎯🏎️🏎]/;
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
@@ -23,46 +23,25 @@ const FETCH_TIMEOUT = 6000;
 const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
 const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
 
-// --- DANH SÁCH BIG TEAMS (CLB LỚN & ĐỘI TUYỂN QUỐC GIA HÀNG ĐẦU) ---
-const BIG_TEAMS = [
-  // CLB Ngoại hạng Anh
-  "manchester united", "manchester city", "arsenal", "chelsea", "liverpool", "tottenham", "newcastle",
-  // CLB La Liga
-  "real madrid", "barcelona", "atletico madrid", "athletic bilbao", "real sociedad",
-  // CLB Serie A
-  "juventus", "inter milan", "ac milan", "milan", "napoli", "as roma", "roma", "lazio",
-  // CLB Bundesliga
-  "bayern munchen", "bayern munich", "borussia dortmund", "dortmund", "leverkusen", "rb leipzig",
-  // CLB Ligue 1 & Khác
-  "paris saint germain", "psg", "ajax", "benfica", "porto", "sporting cp",
-  
-  // Đội tuyển Quốc gia hàng đầu Thế giới & Châu Âu
-  "vietnam", "u22 vietnam", "u23 vietnam", "doi tuyen vietnam",
-  "brazil", "argentina", "france", "england", "germany", "spain", "portugal", "italy", "netherlands", "belgium", "croatia",
-  "uruguay", "denmark", "switzerland", "sweden", "poland", "serbia",
-  "japan", "south korea", "saudi arabia", "australia", "morocco", "senegal", "cameroon", "nigeria"
-];
-
+// --- CACHE CONFIG ---
 let cachedResult = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 90 * 1000; // Cache m3u 90 giây
+const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
 
-// --- PRE-COMPILE REGEX ALIASES ---
+// --- PRE-COMPILE REGEX ---
 const ALIASES = {
   "man dan": "manchester united",
   "quy do": "manchester united",
   "man city": "manchester city", "man utd": "manchester united", "man united": "manchester united",
   "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
-  "psg": "paris saint germain", "bayern": "bayern munchen", "bayern munich": "bayern munchen", 
-  "dortmund": "borussia dortmund", "monchengladbach": "gladbach", "inter": "inter milan", 
-  "ac milan": "milan", "juve": "juventus", "atletico": "atletico madrid", "atleti": "atletico madrid", 
-  "atl madrid": "atletico madrid", "a madrid": "atletico madrid", "ath bilbao": "athletic bilbao", 
-  "ath": "athletic", "atl": "atletico", "real": "real madrid", "barca": "barcelona", 
-  "sociedad": "real sociedad", "betis": "real betis", "vallecano": "rayo vallecano", 
-  "ny red bulls": "new york red bulls", "paris fc": "paris fc", "eintracht": "eintracht frankfurt", 
-  "dep a coruna": "deportivo la coruna",
-  "dtvn": "vietnam", "tuyen viet nam": "vietnam"
+  "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
+  "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
+  "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
+  "ath bilbao": "athletic bilbao", "ath": "athletic", "atl": "atletico",
+  "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
+  "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
+  "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
 };
 
 const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
@@ -70,19 +49,19 @@ const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
   val: v
 }));
 
-const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league|giao huu|friendly)\b/g;
+const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g;
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
 
 // ============================================================
 //  Helpers
 // ============================================================
 
-async function fetchSafe(url, options = {}) {
+async function fetchSafe(url) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
     const res = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT, Accept: "*/*", ...options.headers },
+      headers: { "User-Agent": USER_AGENT, Accept: "*/*" },
       signal: controller.signal,
       redirect: "follow",
     });
@@ -96,7 +75,7 @@ async function fetchSafe(url, options = {}) {
 
 function standardizeName(name) {
   if (!name) return "";
-  return String(name).toLowerCase()
+  return name.toLowerCase()
     .replace(/đ/g, 'd')
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -129,10 +108,13 @@ function extractDateTime(title) {
   return null;
 }
 
+// --- THUẬT TOÁN GỘP THÔNG MINH: CHUẨN NGÀY GIỜ + TRÙNG TỪ KHÓA MỘT PHẦN ---
 function isMatchGroup(ch, group) {
+  // 1. Kiểm tra ngày giờ: Chênh lệch không quá 45 phút
   const timeDiff = Math.abs(ch.timeMs - group.timeMs);
   if (timeDiff > 45 * 60 * 1000) return false;
 
+  // 2. So sánh từ khóa chính (độ dài >= 3 ký tự)
   const getWords = (str) => standardizeName(str).split(' ').filter(w => w.length >= 3);
   
   const a1 = getWords(ch.cleanA);
@@ -148,30 +130,121 @@ function isMatchGroup(ch, group) {
   return directMatch || crossMatch;
 }
 
-// BỘ LỌC NGHIÊM NGẶT - CẢ 2 ĐỘI PHẢI LỚN HOẶC CÓ VIỆT NAM
-function isHotMatch(group) {
+// ============================================================
+//  Core Logic
+// ============================================================
+
+function processM3UText(text) {
+  const matches = [];
+  const others = []; 
+  if (!text) return { matches, others };
+
   try {
-    if (!group) return false;
-    const cleanA = group.cleanA || "";
-    const cleanB = group.cleanB || "";
-    const fullTextCheck = standardizeName(`${cleanA} ${cleanB}`);
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    let i = 0;
+    const nowTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"})).getTime();
 
-    // Ưu tiên tuyệt đối cho Đội tuyển Việt Nam
-    const isVietnamTeam = /viet\s*nam|vn\b|u22\s*vietnam|u23\s*vietnam|doi\s*tuyen/i.test(fullTextCheck);
-    if (isVietnamTeam) {
-      return true;
+    while (i < lines.length) {
+      const line = lines[i].trim();
+      
+      if (line.startsWith("#EXTINF")) {
+        try {
+          let originalGroup = "Kênh Khác";
+          let isBlocked = false;
+          const groupMatch = line.match(/group-title="([^"]*)"/i);
+          if (groupMatch) {
+            originalGroup = groupMatch[1];
+            isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => standardizeName(originalGroup).replace(/\s+/g, '').includes(kw));
+          }
+
+          let urlIdx = i + 1;
+          while (urlIdx < lines.length) {
+            const t = lines[urlIdx].trim();
+            if (t === "" || t.startsWith("#")) { urlIdx++; continue; }
+            break;
+          }
+
+          if (urlIdx < lines.length) {
+            const url = lines[urlIdx].trim();
+            const titleMatch = line.match(/,(.*)$/);
+            let title = titleMatch ? titleMatch[1].trim() : "";
+
+            // LOẠI BỎ CÁC MÔN THỂ THAO KHÁC (Chỉ lọc nếu chứa Icon môn khác)
+            const hasOtherSportIcon = OTHER_SPORTS_ICONS_REGEX.test(title);
+
+            title = title.replace(/[🟢🟡🔴🟠🔵⚪⚫]/g, '').trim();
+            const sportIconMatch = title.match(/[⚽]/);
+            let sportIcon = sportIconMatch ? sportIconMatch[0] : "⚽"; // Mặc định gán icon bóng đá nếu hợp lệ
+
+            const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
+            
+            if (!isBlocked && !isFlv && !hasOtherSportIcon) {
+              const dt = extractDateTime(title);
+              let skipMatch = false;
+
+              if (dt) {
+                const matchDate = new Date(new Date().getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime();
+                const diffHours = (nowTime - matchDate) / (1000 * 60 * 60);
+
+                if (diffHours > EXPIRE_PAST_HOURS) {
+                  skipMatch = true;
+                } else if (diffHours < -MAX_FUTURE_HOURS) {
+                  skipMatch = true;
+                }
+              }
+
+              if (!skipMatch) {
+                let logoMatch = line.match(/(?:tvg-logo|logo)=["']([^"']*)["']/i);
+                let logoUrl = logoMatch ? logoMatch[1] : "";
+
+                let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
+                const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
+                
+                if (vsMatch) {
+                  let teamA = vsMatch[1].trim();
+                  let teamB = vsMatch[2].trim();
+                  
+                  // Giữ nguyên vẹn toàn bộ tên gốc, không cắt ngắn
+                  let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
+
+                  let blvName = "Live";
+                  const blvMatch = title.match(/\((.*?)\)/);
+                  if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
+
+                  const now = new Date();
+                  matches.push({ 
+                    url: url, 
+                    title: title,
+                    logoUrl: logoUrl,
+                    cleanA: cleanAndAliasTeam(teamA),
+                    cleanB: cleanAndAliasTeam(teamB),
+                    displayNameOut: displayNameOut,
+                    rawTeamA: teamA,
+                    rawTeamB: teamB,
+                    sportIcon: sportIcon,
+                    timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
+                    timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
+                    blvName: blvName
+                  });
+                } else {
+                  if (/truyen hinh/i.test(standardizeName(originalGroup))) {
+                     others.push({ url: url, title: title, logoUrl: logoUrl });
+                  }
+                }
+              }
+            }
+            i = urlIdx + 1;
+            continue;
+          }
+        } catch (err) {
+          i++; 
+          continue;
+        }
+      }
+      i++;
     }
-
-    // Kiểm tra CẢ 2 ĐỘI PHẢI CÙNG NẰM TRONG MẢNG BIG_TEAMS
-    const hasBigTeamA = BIG_TEAMS.some(team => new RegExp(`\\b${team}\\b`, 'i').test(cleanA));
-    const hasBigTeamB = BIG_TEAMS.some(team => new RegExp(`\\b${team}\\b`, 'i').test(cleanB));
-
-    if (hasBigTeamA && hasBigTeamB) {
-      return true;
-    }
-
-  } catch (e) {}
-  return false;
+  } catch (globalErr) {}
+  return { matches, others };
 }
 
 // ============================================================
@@ -179,22 +252,20 @@ function isHotMatch(group) {
 // ============================================================
 
 export default async function handler(req, res) {
+  const currentTime = Date.now();
+
+  if (cachedResult && (currentTime - cacheTimestamp < CACHE_TTL_MS)) {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.status(200).send(cachedResult);
+  }
+
+  let combined = "#EXTM3U\n"; 
+
   try {
-    const currentTime = Date.now();
-
-    if (cachedResult && (currentTime - cacheTimestamp < CACHE_TTL_MS)) {
-      res.setHeader("Cache-Control", "public, max-age=60");
-      res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      return res.status(200).send(cachedResult);
-    }
-
-    let combined = "#EXTM3U\n"; 
-
     const [textXiaomi, textThTT, textXoiChe] = await Promise.all([
-      fetchSafe(SOURCES.xiaomi), 
-      fetchSafe(SOURCES.thtt), 
-      fetchSafe(SOURCES.xoiche)
+      fetchSafe(SOURCES.xiaomi), fetchSafe(SOURCES.thtt), fetchSafe(SOURCES.xoiche),
     ]);
 
     let updateTime = "";
@@ -250,9 +321,9 @@ export default async function handler(req, res) {
     });
 
     groupsList.sort((a, b) => a.timeMs - b.timeMs);
-
     const parts = [];
 
+    // 1. Nhóm Truyền hình
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
@@ -261,15 +332,13 @@ export default async function handler(req, res) {
       });
     }
 
+    // 2. Trạng thái hệ thống
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
+    // 3. Danh sách các trận bóng đá đã gom nhóm chuẩn xác
     for (const group of groupsList) {
-      const isHot = isHotMatch(group);
-      // ÁP DỤNG STICKER 💥 𝐇𝐎𝐓 💥
-      const groupTitle = isHot 
-        ? `💥 𝐇𝐎𝐓 💥 [${group.timeStr}] ${group.displayNameOut}` 
-        : `[${group.timeStr}] ${group.displayNameOut}`; 
+      const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
       
       group.streams.forEach((ch) => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
@@ -290,131 +359,12 @@ export default async function handler(req, res) {
     cachedResult = combined;
     cacheTimestamp = Date.now();
 
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
-    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    return res.status(200).send(combined);
-
   } catch (err) {
-    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
-    return res.status(200).send("#EXTM3U\n#EXTINF:-1 group-title=\"📺 Truyền Hình\",Lỗi hệ thống tạm thời\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm\n");
+    combined = "#EXTM3U\n#EXTINF:-1 group-title=\"📺 Truyền Hình\",Lỗi tải danh sách\nhttps://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm\n";
   }
-}
 
-function processM3UText(text) {
-  const matches = [];
-  const others = []; 
-  if (!text) return { matches, others };
-
-  try {
-    const lines = text.replace(/\r\n?/g, "\n").split("\n");
-    let i = 0;
-    const nowTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"})).getTime();
-
-    while (i < lines.length) {
-      const line = lines[i].trim();
-      
-      if (line.startsWith("#EXTINF")) {
-        try {
-          let originalGroup = "Kênh Khác";
-          let isBlocked = false;
-          const groupMatch = line.match(/group-title="([^"]*)"/i);
-          if (groupMatch) {
-            originalGroup = groupMatch[1];
-            isBlocked = BLOCKED_GROUP_KEYWORDS.some(kw => standardizeName(originalGroup).replace(/\s+/g, '').includes(kw));
-          }
-
-          let urlIdx = i + 1;
-          while (urlIdx < lines.length) {
-            const t = lines[urlIdx].trim();
-            if (t === "" || t.startsWith("#")) { urlIdx++; continue; }
-            break;
-          }
-
-          if (urlIdx < lines.length) {
-            const url = lines[urlIdx].trim();
-            const titleMatch = line.match(/,(.*)$/);
-            let title = titleMatch ? titleMatch[1].trim() : "";
-
-            const hasOtherSportIcon = OTHER_SPORTS_ICONS_REGEX.test(title);
-
-            title = title.replace(/[🟢🟡🔴🟠🔵⚪⚫]/g, '').trim();
-            const sportIconMatch = title.match(/[⚽]/);
-            let sportIcon = sportIconMatch ? sportIconMatch[0] : "⚽";
-
-            const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
-            
-            const isU19 = /\bu19\b/i.test(title);
-            const isVietnam = /viet\s*nam|vn\b/i.test(title);
-            const skipU19 = isU19 && !isVietnam;
-
-            if (!isBlocked && !isFlv && !hasOtherSportIcon && !skipU19) {
-              const dt = extractDateTime(title);
-              let skipMatch = false;
-
-              if (dt) {
-                const matchDate = new Date(new Date().getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime();
-                const diffHours = (nowTime - matchDate) / (1000 * 60 * 60);
-
-                if (diffHours > EXPIRE_PAST_HOURS) {
-                  skipMatch = true;
-                } else if (diffHours < -MAX_FUTURE_HOURS) {
-                  skipMatch = true;
-                }
-              }
-
-              if (!skipMatch) {
-                let logoMatch = line.match(/(?:tvg-logo|logo)=["']([^"']*)["']/i);
-                let logoUrl = logoMatch ? logoMatch[1] : "";
-
-                let cleanTitle = title.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\b\d{1,2}[h:]?\s*\d{1,2}\b/gi, ' ').replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, ' ').replace(/\s+/g, ' ').trim();
-                const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
-                
-                if (vsMatch) {
-                  let teamA = vsMatch[1].trim();
-                  let teamB = vsMatch[2].trim();
-                  
-                  let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
-
-                  let blvName = "Live";
-                  const blvMatch = title.match(/\((.*?)\);/);
-                  if (blvMatch) blvName = blvMatch[1].replace(/\[.*?\]/g, '').trim();
-                  // Sửa nhỏ bắt BLV an toàn hơn nếu có dấu ngoặc
-                  const altBlvMatch = title.match(/\(([^)]+)\)/);
-                  if (altBlvMatch && !blvName) blvName = altBlvMatch[1].replace(/\[.*?\]/g, '').trim();
-
-                  const now = new Date();
-                  matches.push({ 
-                    url: url, 
-                    title: title,
-                    logoUrl: logoUrl,
-                    cleanA: cleanAndAliasTeam(teamA),
-                    cleanB: cleanAndAliasTeam(teamB),
-                    displayNameOut: displayNameOut,
-                    rawTeamA: teamA,
-                    rawTeamB: teamB,
-                    sportIcon: sportIcon,
-                    timeStr: dt ? `${dt.h.toString().padStart(2, '0')}:${dt.m.toString().padStart(2, '0')} ${dt.d}/${dt.mon}` : "Sắp tới",
-                    timeMs: dt ? new Date(now.getFullYear(), dt.mon - 1, dt.d, dt.h, dt.m).getTime() : (now.getTime() + 24 * 3600 * 1000),
-                    blvName: blvName || "Live"
-                  });
-                } else {
-                  if (/truyen hinh/i.test(standardizeName(originalGroup))) {
-                     others.push({ url: url, title: title, logoUrl: logoUrl });
-                  }
-                }
-              }
-            }
-            i = urlIdx + 1;
-            continue;
-          }
-        } catch (err) {
-          i++; 
-          continue;
-        }
-      }
-      i++;
-    }
-  } catch (globalErr) {}
-  return { matches, others };
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"); 
+  res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  return res.status(200).send(combined);
 }
