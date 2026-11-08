@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only)
+//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only + Multi-Stream Filter)
 // ============================================================
 
 const SOURCES = {
@@ -110,11 +110,9 @@ function extractDateTime(title) {
 
 // --- THUẬT TOÁN GỘP THÔNG MINH: CHUẨN NGÀY GIỜ + TRÙNG TỪ KHÓA MỘT PHẦN ---
 function isMatchGroup(ch, group) {
-  // 1. Kiểm tra ngày giờ: Chênh lệch không quá 45 phút
   const timeDiff = Math.abs(ch.timeMs - group.timeMs);
   if (timeDiff > 45 * 60 * 1000) return false;
 
-  // 2. So sánh từ khóa chính (độ dài >= 3 ký tự)
   const getWords = (str) => standardizeName(str).split(' ').filter(w => w.length >= 3);
   
   const a1 = getWords(ch.cleanA);
@@ -169,12 +167,11 @@ function processM3UText(text) {
             const titleMatch = line.match(/,(.*)$/);
             let title = titleMatch ? titleMatch[1].trim() : "";
 
-            // LOẠI BỎ CÁC MÔN THỂ THAO KHÁC (Chỉ lọc nếu chứa Icon môn khác)
             const hasOtherSportIcon = OTHER_SPORTS_ICONS_REGEX.test(title);
 
             title = title.replace(/[🟢🟡🔴🟠🔵⚪⚫]/g, '').trim();
             const sportIconMatch = title.match(/[⚽]/);
-            let sportIcon = sportIconMatch ? sportIconMatch[0] : "⚽"; // Mặc định gán icon bóng đá nếu hợp lệ
+            let sportIcon = sportIconMatch ? sportIconMatch[0] : "⚽";
 
             const isFlv = url.toLowerCase().includes(".flv") || url.toLowerCase().includes("=flv");
             
@@ -204,7 +201,6 @@ function processM3UText(text) {
                   let teamA = vsMatch[1].trim();
                   let teamB = vsMatch[2].trim();
                   
-                  // Giữ nguyên vẹn toàn bộ tên gốc, không cắt ngắn
                   let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
 
                   let blvName = "Live";
@@ -320,7 +316,10 @@ export default async function handler(req, res) {
       } catch (e) {}
     });
 
-    groupsList.sort((a, b) => a.timeMs - b.timeMs);
+    // --- BỔ SUNG: LỌC BỎ TRẬN RÁC (CHỈ GIỮ LẠI TRẬN CÓ TỪ 2 LUỒNG TRỞ LÊN) ---
+    const filteredGroupsList = groupsList.filter(group => group.streams.length >= 2);
+
+    filteredGroupsList.sort((a, b) => a.timeMs - b.timeMs);
     const parts = [];
 
     // 1. Nhóm Truyền hình
@@ -336,8 +335,8 @@ export default async function handler(req, res) {
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
-    // 3. Danh sách các trận bóng đá đã gom nhóm chuẩn xác
-    for (const group of groupsList) {
+    // 3. Danh sách các trận bóng đá sau khi lọc >= 2 luồng
+    for (const group of filteredGroupsList) {
       const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
       
       group.streams.forEach((ch) => {
