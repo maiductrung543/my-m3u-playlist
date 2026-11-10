@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Smart Partial Match + Full Names + Football Only + Multi-Stream Filter)
+//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Token Sorting + Combined Pairs + Full Names + Football Only + Multi-Stream Filter)
 // ============================================================
 
 const SOURCES = {
@@ -84,6 +84,11 @@ function standardizeName(name) {
 
 function cleanAndAliasTeam(rawName) {
   let name = standardizeName(rawName);
+  
+  // Chuẩn hóa các cụm từ tiếng Việt/Anh phổ biến viết rời -> viết liền
+  name = name.replace(/\bviet nam\b/g, 'vietnam')
+             .replace(/\bthai lan\b/g, 'thailand');
+
   name = name.replace(LEAGUE_CLEANER_REGEX, ' ');
   name = name.replace(TEAM_SUFFIX_REGEX, ' ').replace(/\s+/g, ' ').trim();
 
@@ -108,24 +113,34 @@ function extractDateTime(title) {
   return null;
 }
 
-// --- THUẬT TOÁN GỘP THÔNG MINH: CHUẨN NGÀY GIỜ + TRÙNG TỪ KHÓA MỘT PHẦN ---
+// --- THUẬT TOÁN GỘP THÔNG MINH: TOKEN SORTING + COMBINED PAIRS ---
+function getNormalizedTokens(str) {
+  const words = standardizeName(str).split(' ').filter(w => w.length >= 3);
+  const combinedPairs = [];
+  for (let i = 0; i < words.length - 1; i++) {
+    combinedPairs.push(words[i] + words[i+1]);
+  }
+  const allTokens = [...new Set([...words, ...combinedPairs])];
+  return allTokens.sort();
+}
+
 function isMatchGroup(ch, group) {
   const timeDiff = Math.abs(ch.timeMs - group.timeMs);
   if (timeDiff > 45 * 60 * 1000) return false;
 
-  const getWords = (str) => standardizeName(str).split(' ').filter(w => w.length >= 3);
-  
-  const a1 = getWords(ch.cleanA);
-  const b1 = getWords(ch.cleanB);
-  const a2 = getWords(group.cleanA);
-  const b2 = getWords(group.cleanB);
+  const t1A = getNormalizedTokens(ch.cleanA);
+  const t1B = getNormalizedTokens(ch.cleanB);
+  const t2A = getNormalizedTokens(group.cleanA);
+  const t2B = getNormalizedTokens(group.cleanB);
 
   const countOverlap = (arr1, arr2) => arr1.filter(w => arr2.includes(w)).length;
 
-  const directMatch = countOverlap(a1, a2) >= 1 && countOverlap(b1, b2) >= 1;
-  const crossMatch = countOverlap(a1, b2) >= 1 && countOverlap(b1, a2) >= 1;
+  const directA = countOverlap(t1A, t2A) >= 1;
+  const directB = countOverlap(t1B, t2B) >= 1;
+  const crossA = countOverlap(t1A, t2B) >= 1;
+  const crossB = countOverlap(t1B, t2A) >= 1;
 
-  return directMatch || crossMatch;
+  return (directA && directB) || (crossA && crossB);
 }
 
 // ============================================================
@@ -316,7 +331,7 @@ export default async function handler(req, res) {
       } catch (e) {}
     });
 
-    // --- BỔ SUNG: LỌC BỎ TRẬN RÁC (CHỈ GIỮ LẠI TRẬN CÓ TỪ 2 LUỒNG TRỞ LÊN) ---
+    // --- LỌC BỎ TRẬN RÁC (CHỈ GIỮ LẠI TRẬN CÓ TỪ 2 LUỒNG TRỞ LÊN) ---
     const filteredGroupsList = groupsList.filter(group => group.streams.length >= 2);
 
     filteredGroupsList.sort((a, b) => a.timeMs - b.timeMs);
