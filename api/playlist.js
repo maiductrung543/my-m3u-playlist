@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Token Sorting + Combined Pairs + Full Names + Football Only + Multi-Stream Filter)
+//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Token Sorting + Clean Display Name + Football Only + Multi-Stream Filter)
 // ============================================================
 
 const SOURCES = {
@@ -85,7 +85,6 @@ function standardizeName(name) {
 function cleanAndAliasTeam(rawName) {
   let name = standardizeName(rawName);
   
-  // Chuẩn hóa các cụm từ tiếng Việt/Anh phổ biến viết rời -> viết liền
   name = name.replace(/\bviet nam\b/g, 'vietnam')
              .replace(/\bthai lan\b/g, 'thailand');
 
@@ -97,6 +96,14 @@ function cleanAndAliasTeam(rawName) {
   }
 
   return name;
+}
+
+// Hàm làm sạch tên hiển thị (loại bỏ tiền tố giải đấu rác như Friendlies, Giao hữu...)
+function cleanDisplayTeam(raw) {
+  if (!raw) return "";
+  let s = raw.replace(/^[\/]+/g, '').trim();
+  s = s.replace(/^(friendlies|giao huu|giao hieu|v[\s\-]?league|ngoai hang|premier league|serie a|la liga|bundesliga|champions league|cup c1|c1)\b/gi, '').trim();
+  return s;
 }
 
 function extractDateTime(title) {
@@ -213,10 +220,10 @@ function processM3UText(text) {
                 const vsMatch = cleanTitle.match(/(.*?)\s+(?:vs\.?|v\.?|versus|-)\s+(.*)/i);
                 
                 if (vsMatch) {
-                  let teamA = vsMatch[1].trim();
-                  let teamB = vsMatch[2].trim();
+                  let teamA = cleanDisplayTeam(vsMatch[1].trim());
+                  let teamB = cleanDisplayTeam(vsMatch[2].trim());
                   
-                  let displayNameOut = `${teamA.replace(/^[\/]+/g, '').trim()} vs ${teamB}`;
+                  let displayNameOut = `${teamA} vs ${teamB}`;
 
                   let blvName = "Live";
                   const blvMatch = title.match(/\((.*?)\)/);
@@ -313,7 +320,8 @@ export default async function handler(req, res) {
           if (!isDuplicateUrl) {
              foundGroup.streams.push(ch);
           }
-          if (ch.displayNameOut.length > foundGroup.displayNameOut.length) {
+          // Ưu tiên giữ chuỗi tên hiển thị ngắn hơn (sạch hơn, không bị dính rác dài)
+          if (ch.displayNameOut.length < foundGroup.displayNameOut.length) {
              foundGroup.displayNameOut = ch.displayNameOut;
              foundGroup.rawTeamA = ch.rawTeamA;
              foundGroup.rawTeamB = ch.rawTeamB;
