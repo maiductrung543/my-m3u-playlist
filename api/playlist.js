@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Standardized Vietnamese Names)
+//  M3U Aggregator - OPTIMIZED (Fixed Duplicate Team Names)
 // ============================================================
 
 const SOURCES = {
@@ -29,37 +29,34 @@ const CACHE_TTL_MS = 90 * 1000;
 
 // --- BẢNG QUY ĐỔI VỀ CHUẨN TIẾNG VIỆT ---
 const ALIASES = {
-  // CLB
   "man dan": "manchester united", "quy do": "manchester united", "man utd": "manchester united", "man united": "manchester united",
   "man city": "manchester city", "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
   "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
-  "atletico": "atletico madrid", "atl madrid": "atletico madrid", "a madrid": "atletico madrid",
-  "ath bilbao": "athletic bilbao", "real": "real madrid", "barca": "barcelona",
+  "atletico madrid": "atletico madrid", "atletico": "atletico madrid", "atl madrid": "atletico madrid", 
 
-  // Đội tuyển quốc gia (Quy chuẩn hết về tiếng Việt)
-  "turkiye": "tho nhi ky", "turkey": "tho nhi ky",
-  "belgium": "bi",
-  "czechia": "cong hoa sec", "czech republic": "cong hoa sec", "czech": "cong hoa sec", "sec": "cong hoa sec",
-  "spain": "tay ban nha",
-  "england": "anh",
-  "france": "phap",
-  "italy": "y",
-  "ivory coast": "bo bien nga", "cote d ivoir": "bo bien nga", "cote d ivoire": "bo bien nga",
-  "netherlands": "ha lan", "holland": "ha lan",
-  "portugal": "bo dao nha",
-  "germany": "duc",
-  "sweden": "thuy dien",
-  "switzerland": "thuy si",
-  "denmark": "dan mach",
-  "norway": "na uy",
-  "poland": "ba lan",
-  "ukraine": "ukraina",
-  "scotland": "xu gan",
-  "greece": "hy lap",
-  "austria": "ao",
-  "cyprus": "sip",
+  "turkiye": "tho nhi ky", "turkey": "tho nhi ky", "tho nhi ky": "tho nhi ky",
+  "belgium": "bi", "bi": "bi",
+  "czech republic": "cong hoa sec", "czechia": "cong hoa sec", "czech": "cong hoa sec", "cong hoa sec": "cong hoa sec", "sec": "cong hoa sec",
+  "spain": "tay ban nha", "tay ban nha": "tay ban nha",
+  "england": "anh", "anh": "anh",
+  "france": "phap", "phap": "phap",
+  "italy": "y", "y": "y",
+  "ivory coast": "bo bien nga", "cote d ivoir": "bo bien nga", "cote d ivoire": "bo bien nga", "bo bien nga": "bo bien nga",
+  "netherlands": "ha lan", "holland": "ha lan", "ha lan": "ha lan",
+  "portugal": "bo dao nha", "bo dao nha": "bo dao nha",
+  "germany": "duc", "duc": "duc",
+  "sweden": "thuy dien", "thuy dien": "thuy dien",
+  "switzerland": "thuy si", "thuy si": "thuy si",
+  "denmark": "dan mach", "dan mach": "dan mach",
+  "norway": "na uy", "na uy": "na uy",
+  "poland": "ba lan", "ba lan": "ba lan",
+  "ukraine": "ukraina", "ukraina": "ukraina",
+  "scotland": "xu gan", "xu gan": "xu gan",
+  "greece": "hy lap", "hy lap": "hy lap",
+  "austria": "ao", "ao": "ao",
+  "cyprus": "sip", "sip": "sip",
   "armenia": "armenia",
   "albania": "albania",
   "finland": "finland",
@@ -75,7 +72,6 @@ const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
 const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league|uefa nations league|nations league)\b/g;
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
 
-// Từ điển viết hoa tên hiển thị tiếng Việt cho đẹp mắt
 const PRETTY_NAMES = {
   "tho nhi ky": "Thổ Nhĩ Kỳ",
   "bi": "Bỉ",
@@ -103,14 +99,17 @@ const PRETTY_NAMES = {
   "albania": "Albania",
   "finland": "Finland",
   "latvia": "Latvia",
-  "montenegro": "Montenegro"
+  "montenegro": "Montenegro",
+  "manchester united": "Manchester United",
+  "manchester city": "Manchester City",
+  "real madrid": "Real Madrid",
+  "barcelona": "Barcelona"
 };
 
-function formatPrettyName(str) {
-  let key = standardizeName(str);
-  if (PRETTY_NAMES[key]) return PRETTY_NAMES[key];
-  // Viết hoa chữ cái đầu cho các đội bóng khác nếu không nằm trong danh sách
-  return str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+function formatPrettyName(normalizedKey, fallbackRaw) {
+  if (PRETTY_NAMES[normalizedKey]) return PRETTY_NAMES[normalizedKey];
+  if (!fallbackRaw) return "";
+  return fallbackRaw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 // ============================================================
@@ -156,7 +155,10 @@ function cleanAndAliasTeam(rawName) {
     name = name.replace(COMPILED_ALIASES[i].regex, COMPILED_ALIASES[i].val);
   }
 
-  return name;
+  // Loại bỏ các từ bị lặp do quá trình thay thế đè chuỗi
+  let words = name.split(' ');
+  let uniqueWords = [...new Set(words)];
+  return uniqueWords.join(' ').trim();
 }
 
 function cleanDisplayTeam(raw) {
@@ -164,9 +166,8 @@ function cleanDisplayTeam(raw) {
   let s = raw.replace(/^[\/]+/g, '').trim();
   s = s.replace(/^(friendlies|giao huu|giao hieu|v[\s\-]?league|ngoai hang|premier league|serie a|la liga|bundesliga|champions league|cup c1|c1)\b/gi, '').trim();
   
-  // Chuẩn hóa luôn tên hiển thị thông qua alias tiếng Việt
-  let aliased = cleanAndAliasTeam(s);
-  return formatPrettyName(aliased);
+  let normalizedKey = cleanAndAliasTeam(s);
+  return formatPrettyName(normalizedKey, s);
 }
 
 function extractDateTime(title) {
