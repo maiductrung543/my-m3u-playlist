@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Strict Date/Time + Token Sorting + Clean Display Name + Football Only + Multi-Stream Filter)
+//  M3U Aggregator - OPTIMIZED (Standardized Vietnamese Names)
 // ============================================================
 
 const SOURCES = {
@@ -13,35 +13,58 @@ const BLOCKED_GROUP_KEYWORDS = [
   "xoigactv", "colatv", "gavang24htv", "gavang33tv"
 ];
 
-// Danh sách các icon môn thể thao KHÔNG PHẢI bóng đá để loại bỏ
 const OTHER_SPORTS_ICONS_REGEX = /[🏐🏀🎾🏈⚾🎱🏸🥊🏒🏉🎯🏎️🏎]/;
 
 const STATUS_STREAM_URL = "https://www.shutterstock.com/ent-static-assets/videos/video_mini_generator_result_2.webm";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT = 6000; 
 
-const EXPIRE_PAST_HOURS = 2;   // Bỏ các trận đã đá quá 2 tiếng
-const MAX_FUTURE_HOURS = 12;   // Chỉ lấy các trận diễn ra trong vòng 12 tiếng tới
+const EXPIRE_PAST_HOURS = 2;   
+const MAX_FUTURE_HOURS = 12;   
 
 // --- CACHE CONFIG ---
 let cachedResult = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 90 * 1000; // Cache 90 giây
+const CACHE_TTL_MS = 90 * 1000; 
 
-// --- PRE-COMPILE REGEX ---
+// --- BẢNG QUY ĐỔI VỀ CHUẨN TIẾNG VIỆT ---
 const ALIASES = {
-  "man dan": "manchester united",
-  "quy do": "manchester united",
-  "man city": "manchester city", "man utd": "manchester united", "man united": "manchester united",
-  "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
+  // CLB
+  "man dan": "manchester united", "quy do": "manchester united", "man utd": "manchester united", "man united": "manchester united",
+  "man city": "manchester city", "wolves": "wolverhampton", "spurs": "tottenham", "newcastle utd": "newcastle",
   "west ham utd": "west ham", "nottm forest": "nottingham forest", "sheffield utd": "sheffield united",
   "psg": "paris saint germain", "bayern": "bayern munchen", "dortmund": "borussia dortmund",
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
-  "atletico": "atleti madrid", "atl madrid": "atleti madrid", "a madrid": "atleti madrid",
-  "ath bilbao": "athletic bilbao", "ath": "athletic", "atl": "atletico",
-  "real": "real madrid", "barca": "barcelona", "sociedad": "real sociedad", "betis": "real betis",
-  "vallecano": "rayo vallecano", "ny red bulls": "new york red bulls", "paris fc": "paris fc",
-  "eintracht": "eintracht frankfurt", "dep a coruna": "deportivo la coruna"
+  "atletico": "atletico madrid", "atl madrid": "atletico madrid", "a madrid": "atletico madrid",
+  "ath bilbao": "athletic bilbao", "real": "real madrid", "barca": "barcelona",
+
+  // Đội tuyển quốc gia (Quy chuẩn hết về tiếng Việt)
+  "turkiye": "tho nhi ky", "turkey": "tho nhi ky",
+  "belgium": "bi",
+  "czechia": "cong hoa sec", "czech republic": "cong hoa sec", "czech": "cong hoa sec", "sec": "cong hoa sec",
+  "spain": "tay ban nha",
+  "england": "anh",
+  "france": "phap",
+  "italy": "y",
+  "ivory coast": "bo bien nga", "cote d ivoir": "bo bien nga", "cote d ivoire": "bo bien nga",
+  "netherlands": "ha lan", "holland": "ha lan",
+  "portugal": "bo dao nha",
+  "germany": "duc",
+  "sweden": "thuy dien",
+  "switzerland": "thuy si",
+  "denmark": "dan mach",
+  "norway": "na uy",
+  "poland": "ba lan",
+  "ukraine": "ukraina",
+  "scotland": "xu gan",
+  "greece": "hy lap",
+  "austria": "ao",
+  "cyprus": "sip",
+  "armenia": "armenia",
+  "albania": "albania",
+  "finland": "finland",
+  "latvia": "latvia",
+  "montenegro": "montenegro"
 };
 
 const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
@@ -49,8 +72,46 @@ const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
   val: v
 }));
 
-const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league)\b/g;
+const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league|uefa nations league|nations league)\b/g;
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
+
+// Từ điển viết hoa tên hiển thị tiếng Việt cho đẹp mắt
+const PRETTY_NAMES = {
+  "tho nhi ky": "Thổ Nhĩ Kỳ",
+  "bi": "Bỉ",
+  "cong hoa sec": "Cộng Hòa Séc",
+  "tay ban nha": "Tây Ban Nha",
+  "anh": "Anh",
+  "phap": "Pháp",
+  "y": "Ý",
+  "bo bien nga": "Bờ Biển Ngà",
+  "ha lan": "Hà Lan",
+  "bo dao nha": "Bồ Đào Nha",
+  "duc": "Đức",
+  "thuy dien": "Thụy Điển",
+  "thuy si": "Thụy Sĩ",
+  "dan mach": "Đan Mạch",
+  "na uy": "Na Uy",
+  "ba lan": "Ba Lan",
+  "ukraina": "Ukraina",
+  "croatia": "Croatia",
+  "serbia": "Serbia",
+  "hy lap": "Hy Lạp",
+  "ao": "Áo",
+  "sip": "Síp",
+  "armenia": "Armenia",
+  "albania": "Albania",
+  "finland": "Finland",
+  "latvia": "Latvia",
+  "montenegro": "Montenegro"
+};
+
+function formatPrettyName(str) {
+  let key = standardizeName(str);
+  if (PRETTY_NAMES[key]) return PRETTY_NAMES[key];
+  // Viết hoa chữ cái đầu cho các đội bóng khác nếu không nằm trong danh sách
+  return str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
 
 // ============================================================
 //  Helpers
@@ -98,12 +159,14 @@ function cleanAndAliasTeam(rawName) {
   return name;
 }
 
-// Hàm làm sạch tên hiển thị (loại bỏ tiền tố giải đấu rác như Friendlies, Giao hữu...)
 function cleanDisplayTeam(raw) {
   if (!raw) return "";
   let s = raw.replace(/^[\/]+/g, '').trim();
   s = s.replace(/^(friendlies|giao huu|giao hieu|v[\s\-]?league|ngoai hang|premier league|serie a|la liga|bundesliga|champions league|cup c1|c1)\b/gi, '').trim();
-  return s;
+  
+  // Chuẩn hóa luôn tên hiển thị thông qua alias tiếng Việt
+  let aliased = cleanAndAliasTeam(s);
+  return formatPrettyName(aliased);
 }
 
 function extractDateTime(title) {
@@ -120,9 +183,8 @@ function extractDateTime(title) {
   return null;
 }
 
-// --- THUẬT TOÁN GỘP THÔNG MINH: TOKEN SORTING + COMBINED PAIRS ---
 function getNormalizedTokens(str) {
-  const words = standardizeName(str).split(' ').filter(w => w.length >= 3);
+  const words = standardizeName(str).split(' ').filter(w => w.length >= 2);
   const combinedPairs = [];
   for (let i = 0; i < words.length - 1; i++) {
     combinedPairs.push(words[i] + words[i+1]);
@@ -133,7 +195,7 @@ function getNormalizedTokens(str) {
 
 function isMatchGroup(ch, group) {
   const timeDiff = Math.abs(ch.timeMs - group.timeMs);
-  if (timeDiff > 45 * 60 * 1000) return false;
+  if (timeDiff > 60 * 60 * 1000) return false;
 
   const t1A = getNormalizedTokens(ch.cleanA);
   const t1B = getNormalizedTokens(ch.cleanB);
@@ -320,7 +382,6 @@ export default async function handler(req, res) {
           if (!isDuplicateUrl) {
              foundGroup.streams.push(ch);
           }
-          // Ưu tiên giữ chuỗi tên hiển thị ngắn hơn (sạch hơn, không bị dính rác dài)
           if (ch.displayNameOut.length < foundGroup.displayNameOut.length) {
              foundGroup.displayNameOut = ch.displayNameOut;
              foundGroup.rawTeamA = ch.rawTeamA;
@@ -339,13 +400,11 @@ export default async function handler(req, res) {
       } catch (e) {}
     });
 
-    // --- LỌC BỎ TRẬN RÁC (CHỈ GIỮ LẠI TRẬN CÓ TỪ 2 LUỒNG TRỞ LÊN) ---
     const filteredGroupsList = groupsList.filter(group => group.streams.length >= 2);
 
     filteredGroupsList.sort((a, b) => a.timeMs - b.timeMs);
     const parts = [];
 
-    // 1. Nhóm Truyền hình
     if (allOthers.length > 0) {
       allOthers.forEach(ch => {
         let logoAttr = ch.logoUrl ? `tvg-logo="${ch.logoUrl}" ` : "";
@@ -354,11 +413,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Trạng thái hệ thống
     const statusName = updateTime ? `Trạng thái: Ổn định (Cập nhật: ${updateTime})` : `Trạng thái: Ổn định`;
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
-    // 3. Danh sách các trận bóng đá sau khi lọc >= 2 luồng
     for (const group of filteredGroupsList) {
       const groupTitle = `[${group.timeStr}] ${group.displayNameOut}`; 
       
