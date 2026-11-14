@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (No Soccer Icon, Fire Icon for >= 5 Streams)
+//  M3U Aggregator - OPTIMIZED (Fire Icon for >= 4 Streams)
 // ============================================================
 
 const SOURCES = {
@@ -425,8 +425,8 @@ export default async function handler(req, res) {
     parts.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Twitter_Verified_Badge.svg/512px-Twitter_Verified_Badge.svg.png" group-title="${statusName}",${statusName}\n${STATUS_STREAM_URL}`);
 
     for (const group of filteredGroupsList) {
-      // Nếu số lượng luồng (streams) >= 5 thì thêm icon ngọn lửa 🔥 vào tên group
-      const isHotMatch = group.streams.length >= 5;
+      // Đổi điều kiện từ >= 5 thành >= 4 luồng thì thêm icon ngọn lửa 🔥
+      const isHotMatch = group.streams.length >= 4;
       const hotIcon = isHotMatch ? "🔥 " : "";
       const groupTitle = `[${group.timeStr}] ${hotIcon}${group.displayNameOut}`; 
       
