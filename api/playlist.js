@@ -1,5 +1,5 @@
 // ============================================================
-//  M3U Aggregator - OPTIMIZED (Fixed Duplicate Team Names)
+//  M3U Aggregator - OPTIMIZED (Strict Time Match & Single-Team Grouping)
 // ============================================================
 
 const SOURCES = {
@@ -36,6 +36,12 @@ const ALIASES = {
   "monchengladbach": "gladbach", "inter": "inter milan", "ac milan": "milan", "juve": "juventus",
   "atletico madrid": "atletico madrid", "atletico": "atletico madrid", "atl madrid": "atletico madrid", 
 
+  "japan": "nhat ban", "nhat ban": "nhat ban",
+  "south korea": "han quoc", "korea republic": "han quoc", "korea rep": "han quoc", "han quoc": "han quoc",
+  "china": "trung quoc", "trung quoc": "trung quoc",
+  "vietnam": "viet nam", "viet nam": "viet nam",
+  "thailand": "thai lan", "thai lan": "thai lan",
+
   "turkiye": "tho nhi ky", "turkey": "tho nhi ky", "tho nhi ky": "tho nhi ky",
   "belgium": "bi", "bi": "bi",
   "czech republic": "cong hoa sec", "czechia": "cong hoa sec", "czech": "cong hoa sec", "cong hoa sec": "cong hoa sec", "sec": "cong hoa sec",
@@ -69,10 +75,15 @@ const COMPILED_ALIASES = Object.entries(ALIASES).map(([k, v]) => ({
   val: v
 }));
 
-const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league|uefa nations league|nations league)\b/g;
+const LEAGUE_CLEANER_REGEX = /\b(a league|a-league|ngoai hang|cup c1|c1|champions league|europa league|v league|v-league|uefa nations league|nations league|king s cup|kings cup)\b/g;
 const TEAM_SUFFIX_REGEX = /\b(afc|fc|cf|sc|ac|club|calcio|sporting|cd|u19|u20|u21|u23|nu|women|sco)\b/g;
 
 const PRETTY_NAMES = {
+  "nhat ban": "Nhật Bản",
+  "han quoc": "Hàn Quốc",
+  "trung quoc": "Trung Quốc",
+  "viet nam": "Việt Nam",
+  "thai lan": "Thái Lan",
   "tho nhi ky": "Thổ Nhĩ Kỳ",
   "bi": "Bỉ",
   "cong hoa sec": "Cộng Hòa Séc",
@@ -145,9 +156,6 @@ function standardizeName(name) {
 function cleanAndAliasTeam(rawName) {
   let name = standardizeName(rawName);
   
-  name = name.replace(/\bviet nam\b/g, 'vietnam')
-             .replace(/\bthai lan\b/g, 'thailand');
-
   name = name.replace(LEAGUE_CLEANER_REGEX, ' ');
   name = name.replace(TEAM_SUFFIX_REGEX, ' ').replace(/\s+/g, ' ').trim();
 
@@ -155,7 +163,6 @@ function cleanAndAliasTeam(rawName) {
     name = name.replace(COMPILED_ALIASES[i].regex, COMPILED_ALIASES[i].val);
   }
 
-  // Loại bỏ các từ bị lặp do quá trình thay thế đè chuỗi
   let words = name.split(' ');
   let uniqueWords = [...new Set(words)];
   return uniqueWords.join(' ').trim();
@@ -164,7 +171,7 @@ function cleanAndAliasTeam(rawName) {
 function cleanDisplayTeam(raw) {
   if (!raw) return "";
   let s = raw.replace(/^[\/]+/g, '').trim();
-  s = s.replace(/^(friendlies|giao huu|giao hieu|v[\s\-]?league|ngoai hang|premier league|serie a|la liga|bundesliga|champions league|cup c1|c1)\b/gi, '').trim();
+  s = s.replace(/^(friendlies|giao huu|giao hieu|v[\s\-]?league|ngoai hang|premier league|serie a|la liga|bundesliga|champions league|cup c1|c1|king'?s cup)\b/gi, '').trim();
   
   let normalizedKey = cleanAndAliasTeam(s);
   return formatPrettyName(normalizedKey, s);
@@ -195,22 +202,29 @@ function getNormalizedTokens(str) {
 }
 
 function isMatchGroup(ch, group) {
-  const timeDiff = Math.abs(ch.timeMs - group.timeMs);
-  if (timeDiff > 60 * 60 * 1000) return false;
+  // Yêu cầu bắt buộc: Phải chuẩn đúng tuyệt đối ngày và giờ (timeStr trùng khít nhau)
+  if (ch.timeStr === "Sắp tới" || group.timeStr === "Sắp tới" || ch.timeStr !== group.timeStr) {
+    return false;
+  }
 
   const t1A = getNormalizedTokens(ch.cleanA);
   const t1B = getNormalizedTokens(ch.cleanB);
   const t2A = getNormalizedTokens(group.cleanA);
   const t2B = getNormalizedTokens(group.cleanB);
 
-  const countOverlap = (arr1, arr2) => arr1.filter(w => arr2.includes(w)).length;
+  const isSameTeam = (clean1, tokens1, clean2, tokens2) => {
+    if (!clean1 || !clean2) return false;
+    if (clean1 === clean2) return true;
+    return tokens1.some(w => tokens2.includes(w));
+  };
 
-  const directA = countOverlap(t1A, t2A) >= 1;
-  const directB = countOverlap(t1B, t2B) >= 1;
-  const crossA = countOverlap(t1A, t2B) >= 1;
-  const crossB = countOverlap(t1B, t2A) >= 1;
+  const matchAA = isSameTeam(ch.cleanA, t1A, group.cleanA, t2A);
+  const matchBB = isSameTeam(ch.cleanB, t1B, group.cleanB, t2B);
+  const matchAB = isSameTeam(ch.cleanA, t1A, group.cleanB, t2B);
+  const matchBA = isSameTeam(ch.cleanB, t1B, group.cleanA, t2A);
 
-  return (directA && directB) || (crossA && crossB);
+  // Chỉ cần trùng 1 trong 2 đội bóng và đúng chuẩn tuyệt đối ngày giờ thì gom vào
+  return matchAA || matchBB || matchAB || matchBA;
 }
 
 // ============================================================
